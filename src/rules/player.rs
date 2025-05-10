@@ -1,9 +1,9 @@
 use rand::{seq::IteratorRandom, rngs::ThreadRng};
-use crate::rules::types::{Player, Direction, Cell}; 
+use crate::rules::types::{Player, Direction, Cell, Position}; 
 
 pub fn initialize_players(grid: &mut Vec<Vec<Cell>>, num_players: usize) -> Vec<Player> {
     let mut players = Vec::new();
-    let mut rng: ThreadRng = rand::rng();
+    let mut rng: ThreadRng = rand::thread_rng();
 
     // Collect all available solid positions in the grid
     let mut available_positions: Vec<(usize, usize)> = grid.iter()
@@ -20,9 +20,9 @@ pub fn initialize_players(grid: &mut Vec<Vec<Cell>>, num_players: usize) -> Vec<
             grid[x][y] = Cell::Player(id as u8);
             players.push(Player {
                 id: id as u8,
-                x,
-                y,
-                has_cannonball: false,
+                pos: Position { x, y },
+                is_alive: true,
+                cannonball_count: 0,
             });
 
             // Remove the used position to avoid duplicates
@@ -41,30 +41,41 @@ pub fn get_player_move() -> Direction {
 
 // Function to move the player
 pub fn move_player(player: &mut Player, direction: Direction, grid: &mut Vec<Vec<Cell>>) {
-    // Check if the movement is valid and update the player's position
+    let mut new_pos = player.pos;
+
     match direction {
         Direction::Up => {
-            if player.x > 0 {
-                player.x -= 1;
+            if player.pos.x > 0 {
+                new_pos.x -= 1;
             }
         }
         Direction::Down => {
-            if player.x < grid.len() - 1 {
-                player.x += 1;
+            if player.pos.x < grid.len() - 1 {
+                new_pos.x += 1;
             }
         }
         Direction::Left => {
-            if player.y > 0 {
-                player.y -= 1;
+            if player.pos.y > 0 {
+                new_pos.y -= 1;
             }
         }
         Direction::Right => {
-            if player.y < grid[0].len() - 1 {
-                player.y += 1;
+            if player.pos.y < grid[0].len() - 1 {
+                new_pos.y += 1;
             }
         }
         Direction::Stay => {
             // Player stays in the same position
         }
     }
+
+    if grid[new_pos.x][new_pos.y] == Cell::Cannonball {
+        player.cannonball_count += 1;
+    }
+    grid[player.pos.x][player.pos.y] = Cell::Solid;
+    player.pos = new_pos;
+    if grid[new_pos.x][new_pos.y] == Cell::Broken 
+        {player.is_alive = false;}
+    else 
+        {grid[player.pos.x][player.pos.y] = Cell::Player(player.id);}
 }

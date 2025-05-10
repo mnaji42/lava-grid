@@ -28,11 +28,11 @@ pub fn generate_cannonballs(grid: &mut Vec<Vec<Cell>>) {
 
 // Function to use a cannonball (destroy a specific cell)
 pub fn use_cannonball(player: &mut Player, x: usize, y: usize, grid: &mut Vec<Vec<Cell>>) {
-    if player.has_cannonball {
+    if player.cannonball_count > 0 {
         // Destroy the chosen cell by setting it to `Cell::Broken`
         if x < grid.len() && y < grid[0].len() {
             grid[x][y] = Cell::Broken;
-            player.has_cannonball = false; // Once used, the cannonball is consumed
+            player.cannonball_count -=1; // Once used, the cannonball is consumed
         }
     }
 }

@@ -1,7 +1,16 @@
 /////////////////////////////////////////////
+// ************* GENERAL *****************//
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Position {
+    pub x: usize,
+    pub y: usize,
+}
+
+/////////////////////////////////////////////
 // ************* GRID *********************//
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Cell {
     Solid,        // Solid cell
     Broken,       // Broken cell (lava)
@@ -25,9 +34,9 @@ impl Cell {
 #[derive(Debug, Clone)]
 pub struct Player {
     pub id: u8,
-    pub x: usize,
-    pub y: usize,
-    pub has_cannonball: bool,
+    pub pos: Position,
+    pub cannonball_count: u32,
+    pub is_alive: bool,
 }
 
 pub enum Direction {
@@ -43,6 +52,5 @@ pub enum Direction {
 
 #[derive(Clone, Debug)]
 pub struct Cannonball {
-    pub x: usize,
-    pub y: usize,
+    pub pos: Position
 }

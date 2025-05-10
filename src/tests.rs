@@ -27,13 +27,13 @@ mod tests {
 
         // Ensure the players are placed on solid tiles (`Cell::Player`)
         for player in &players {
-            assert_eq!(grid[player.x][player.y], Cell::Player(player.id));
+            assert_eq!(grid[player.pos.x][player.pos.y], Cell::Player(player.id));
         }
 
         // Ensure players are placed on distinct positions
         let mut positions = Vec::new();
         for player in &players {
-            let pos = (player.x, player.y);
+            let pos = (player.pos.x, player.pos.y);
             assert!(!positions.contains(&pos), "Player {} is placed on a duplicate position", player.id);
             positions.push(pos);
         }
@@ -47,7 +47,7 @@ mod tests {
         // Verify that players' positions are random and distinct
         let mut positions = Vec::new();
         for player in &players {
-            let pos = (player.x, player.y);
+            let pos = (player.pos.x, player.pos.y);
             // Check that the position is unique
             assert!(!positions.contains(&pos), "Player {} is placed on a duplicate position", player.id);
             positions.push(pos);

@@ -1,7 +1,7 @@
 mod rules;
+mod rules_dev;
 
 fn main() {
-    if rules::check_game_over() {
-        println!("Game Over!");
-    }
+    let grid = rules::generate_grid(10, 10);
+    rules_dev::print_grid(&grid);
 }

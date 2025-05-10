@@ -1,5 +1,4 @@
-use rand::seq::IteratorRandom;
-use rand::thread_rng;
+use rand::{seq::IteratorRandom, thread_rng, Rng};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Cell {
@@ -19,6 +18,12 @@ impl Cell {
     pub fn is_broken(&self) -> bool {
         matches!(self, Cell::Broken)
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct Cannonball {
+    pub x: usize,
+    pub y: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -67,3 +72,27 @@ pub fn initialize_players(grid: &mut Vec<Vec<Cell>>, num_players: usize) -> Vec<
     players
 }
 
+// Function to place cannonballs randomly on the grid
+pub fn generate_cannonballs(grid: &mut Vec<Vec<Cell>>) {
+    let mut rng = thread_rng();
+    
+    // Choose a random number of cannonballs to place (between 1 and 3)
+    let num_cannonballs = rand::thread_rng().gen_range(1..=3);
+    
+    // Create a list of all available positions (solid cells)
+    let mut available_positions = Vec::new();
+    for i in 0..grid.len() {
+        for j in 0..grid[i].len() {
+            if matches!(grid[i][j], Cell::Solid) {
+                available_positions.push((i, j));
+            }
+        }
+    }
+    
+    // Place the cannonballs randomly on the grid
+    for _ in 0..num_cannonballs {
+        if let Some((x, y)) = available_positions.iter().choose(&mut rng) {
+            grid[*x][*y] = Cell::Cannonball;
+        }
+    }
+}

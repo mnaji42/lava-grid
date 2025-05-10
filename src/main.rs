@@ -1,6 +1,7 @@
-use program::say_hello;
+mod rules;
 
 fn main() {
-    println!("Hello, world!");
-    say_hello();
+    if rules::check_game_over() {
+        println!("Game Over!");
+    }
 }

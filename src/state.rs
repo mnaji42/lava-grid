@@ -36,6 +36,6 @@ impl GameState {
     // Passe au tour suivant
     pub fn next_turn(&mut self) {
         self.turn += 1;
-        break_tile(&mut self.grid);  // Cassure de tuile à chaque tour
+        break_tile(self);  // Cassure de tuile à chaque tour
     }
 }

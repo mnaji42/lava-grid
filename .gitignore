@@ -8,4 +8,4 @@ Cargo.lock
 # VSCode settings
 .vscode
 
-.project_state.txt
+project_state.txt

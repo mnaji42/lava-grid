@@ -1,5 +1,6 @@
-use crate::types::{Cell};
+use crate::types::{Cell, Position};
 use rand::{seq::IteratorRandom};
+use crate::state::GameState;
 
 pub fn generate_grid(rows: usize, cols: usize) -> Vec<Vec<Cell>> {
     vec![vec![Cell::Solid; cols]; rows]
@@ -10,11 +11,14 @@ fn is_cell_breakable(cell: Cell) -> bool {
 }
 
 
-pub fn break_tile(grid: &mut Vec<Vec<Cell>>) {
+// pub fn break_tile(grid: &mut Vec<Vec<Cell>>, cannonballs: &mut Vec<Cannonball>) {
+pub fn break_tile(game_state: &mut GameState) {
     let mut rng = rand::rng();
-    let solid_tiles: Vec<(usize, usize)> = grid.iter().enumerate()
+    
+    // Filtrer les cases solides
+    let solid_tiles: Vec<(usize, usize)> = game_state.grid.iter().enumerate()
         .flat_map(|(x, row)| row.iter().enumerate().filter_map(move |(y, cell)| {
-            if is_cell_breakable(*cell) {
+            if *cell == Cell::Solid {
                 Some((x, y))
             } else {
                 None
@@ -23,8 +27,15 @@ pub fn break_tile(grid: &mut Vec<Vec<Cell>>) {
         .collect();
 
     if let Some(&(x, y)) = solid_tiles.iter().choose(&mut rng) {
-        grid[x][y] = Cell::Broken;
+        // Chercher s'il y a un canon sur cette tuile et le supprimer
+        if let Some(pos) = game_state.cannonballs.iter().position(|c| c.pos == Position { x, y }) {
+            game_state.cannonballs.remove(pos);  // Supprimer le canon
+        }
+
+        // Casser la tuile
+        game_state.grid[x][y] = Cell::Broken;
     }
 }
+
 
 

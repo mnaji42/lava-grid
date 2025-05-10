@@ -1,18 +1,25 @@
-mod rules;
-mod rules_dev;
+mod game;
+mod types;
+mod utils;
+mod state;
 
-use crate::rules::{generate_grid, initialize_players, generate_cannonballs};
-use crate::rules::game::run_game_loop;
-use crate::rules_dev::print_grid;
+mod entities {
+    pub mod player;
+    pub mod cannonball;
+}
+
+mod grid {
+    pub mod grid;
+}
+
+mod systems {
+    pub mod movement;
+    pub mod rules;
+    pub mod render;
+}
+
+use crate::game::run_game_loop;
 
 fn main() {
-    let mut grid = generate_grid(5, 5);
-    let mut players = initialize_players(&mut grid, 1);
-    generate_cannonballs(&mut grid);
-
-    println!("=== Initial Grid ===");
-    print_grid(&grid);
-
-    // Run the game loop for 5 turns
-    run_game_loop(&mut grid, &mut players, 5);
+    run_game_loop();
 }

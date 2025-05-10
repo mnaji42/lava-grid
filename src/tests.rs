@@ -1,59 +1,93 @@
 #[cfg(test)]
 mod tests {
-    use super::*; // This imports everything from the current module
+    use super::*;
+    use crate::{grid::*, player::*, cannonball::*, types::*};
 
     #[test]
-    fn test_generate_grid() {
-        let rows = 10;
-        let cols = 10;
-        let grid = generate_grid(rows, cols);
+    fn test_grid_generation_size() {
+        let grid = create_grid(10, 10);
+        assert_eq!(grid.len(), 10);
+        assert!(grid.iter().all(|row| row.len() == 10));
+    }
 
-        // Ensure the grid has the correct dimensions
-        assert_eq!(grid.len(), rows);
-        for row in &grid {
-            assert_eq!(row.len(), cols);
-            // Ensure all cells are `Cell::Solid`
-            assert!(row.iter().all(|&cell| matches!(cell, Cell::Solid)));
+    #[test]
+    fn test_player_spawn_no_overlap() {
+        let grid = create_grid(10, 10);
+        let mut players = vec![];
+
+        for id in 0..5 {
+            let player = spawn_random_player(&grid, &players, id).expect("Failed to spawn player");
+            assert!(!players.iter().any(|p| p.pos == player.pos));
+            players.push(player);
         }
     }
 
     #[test]
-    fn test_initialize_players() {
-        let mut grid = generate_grid(10, 10);
-        let players = initialize_players(&mut grid, 5);
-
-        // Verify that the correct number of players has been initialized
-        assert_eq!(players.len(), 5);
-
-        // Ensure the players are placed on solid tiles (`Cell::Player`)
-        for player in &players {
-            assert_eq!(grid[player.pos.x][player.pos.y], Cell::Player(player.id));
-        }
-
-        // Ensure players are placed on distinct positions
-        let mut positions = Vec::new();
-        for player in &players {
-            let pos = (player.pos.x, player.pos.y);
-            assert!(!positions.contains(&pos), "Player {} is placed on a duplicate position", player.id);
-            positions.push(pos);
-        }
+    fn test_spawn_player_no_space() {
+        let mut grid = vec![vec![Cell::Lava; 5]; 5]; // aucune case valide
+        let players = vec![];
+        let player = spawn_random_player(&grid, &players, 0);
+        assert!(player.is_none());
     }
 
     #[test]
-    fn test_random_player_positions() {
-        let mut grid = generate_grid(10, 10);
-        let players = initialize_players(&mut grid, 5);
+    fn test_cannonball_spawn_limit() {
+        let grid = create_grid(5, 5);
+        let players = vec![];
+        let cannonballs = spawn_random_cannonballs(&grid, &players, 0, 100);
+        assert!(cannonballs.len() <= 25); // au max 25 tiles solides
+    }
 
-        // Verify that players' positions are random and distinct
-        let mut positions = Vec::new();
-        for player in &players {
-            let pos = (player.pos.x, player.pos.y);
-            // Check that the position is unique
-            assert!(!positions.contains(&pos), "Player {} is placed on a duplicate position", player.id);
-            positions.push(pos);
+    #[test]
+    fn test_move_player_into_lava() {
+        let mut grid = create_grid(5, 5);
+        let mut player = Player::new(1, Position { x: 2, y: 2 });
+
+        grid[2][3] = Cell::Lava;
+        move_player(&mut player, Direction::Right, &grid);
+
+        assert!(!player.is_alive);
+    }
+
+    #[test]
+    fn test_pickup_cannonball() {
+        let grid = create_grid(5, 5);
+        let mut player = Player::new(1, Position { x: 2, y: 2 });
+        let cannonball_pos = Position { x: 2, y: 3 };
+        let mut cannonballs = vec![Cannonball { pos: cannonball_pos }];
+
+        move_player(&mut player, Direction::Right, &grid);
+        try_pickup_cannonball(&mut player, &mut cannonballs);
+
+        assert_eq!(player.cannonball_count, 1);
+        assert!(cannonballs.is_empty());
+    }
+
+    #[test]
+    fn test_break_tile_replaces_with_lava() {
+        let mut grid = create_grid(5, 5);
+        let mut rng = rand::rng();
+
+        break_tile(&mut grid, &mut rng);
+        let lava_count = grid.iter().flatten().filter(|&&c| c == Cell::Lava).count();
+        assert_eq!(lava_count, 1);
+    }
+
+    #[test]
+    fn test_player_does_not_spawn_on_object() {
+        let mut grid = create_grid(5, 5);
+        let mut players = vec![];
+        let mut cannonballs = vec![
+            Cannonball { pos: Position { x: 1, y: 1 } },
+            Cannonball { pos: Position { x: 2, y: 2 } },
+        ];
+
+        for id in 0..10 {
+            if let Some(p) = spawn_random_player(&grid, &players, id) {
+                // Le joueur ne spawn pas sur un cannonball
+                assert!(!cannonballs.iter().any(|c| c.pos == p.pos));
+                players.push(p);
+            }
         }
-
-        // Ensure players are not placed on the same cell
-        assert_eq!(positions.len(), players.len(), "Some players share the same position");
     }
 }

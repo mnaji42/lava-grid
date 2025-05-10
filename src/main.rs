@@ -1,7 +1,17 @@
 mod rules;
 mod rules_dev;
+use crate::rules::{Cell, generate_grid, initialize_players};
+use crate::rules_dev::{print_grid, debug_print};
+
 
 fn main() {
-    let grid = rules::generate_grid(10, 10);
-    rules_dev::print_grid(&grid);
+    let mut grid = generate_grid(10, 10); // Generate a 10x10 grid
+    let players = initialize_players(&mut grid, 5); // Initialize 5 players on the grid
+
+    print_grid(&grid); // Display the grid with the players
+
+    // Display the players (for debugging purposes)
+    for player in players {
+        println!("{:?}", player); // Print the player's state
+    }
 }

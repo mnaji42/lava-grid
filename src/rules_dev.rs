@@ -1,4 +1,6 @@
-pub fn print_grid(grid: &Vec<Vec<u8>>) {
+use crate::rules::{Cell};
+
+pub fn print_grid(grid: &Vec<Vec<Cell>>) {
     for row in grid {
         println!("{:?}", row);
     }

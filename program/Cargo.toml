@@ -1,0 +1,11 @@
+[package]
+name = "program"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bincode = "2.0.1"
+risc0-zkvm = "2.0.2"
+risc0-zkvm-platform = "2.0.2"
+serde = { version = "1.0.219", features = ["derive"] }
+succinct = "0.5.2"

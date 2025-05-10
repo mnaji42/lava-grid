@@ -1,4 +1,4 @@
-use crate::rules::{Cell};
+use crate::rules::types::{Cell}; 
 
 pub fn print_grid(grid: &Vec<Vec<Cell>>) {
     for row in grid {

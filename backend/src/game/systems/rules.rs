@@ -1,7 +1,7 @@
-use crate::types::{Cell};
-use crate::state::GameState;
-use crate::grid::grid::{break_tile};
-use crate::utils::{resolve_cannonball_hits};
+use super::types::{Cell};
+use super::state::GameState;
+use super::grid::{break_tile};
+use super::utils::{resolve_cannonball_hits};
 
 pub fn apply_rules(game_state: &mut GameState, player_index: usize) {
 

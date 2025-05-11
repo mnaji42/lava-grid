@@ -1,6 +1,6 @@
-use crate::types::{Cell, Position};
+use super::types::{Cell, Position};
+use super::state::GameState;
 use rand::{seq::IteratorRandom};
-use crate::state::GameState;
 
 pub fn generate_grid(rows: usize, cols: usize) -> Vec<Vec<Cell>> {
     vec![vec![Cell::Solid; cols]; rows]

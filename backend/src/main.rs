@@ -1,25 +1,19 @@
+mod server;
 mod game;
-mod types;
-mod utils;
-mod state;
 
-mod entities {
-    pub mod player;
-    pub mod cannonball;
+use actix_web::{web, App, HttpServer, Responder};
+
+async fn hello_world() -> impl Responder {
+    "Hello, world!"
 }
 
-mod grid {
-    pub mod grid;
-}
-
-mod systems {
-    pub mod movement;
-    pub mod rules;
-    pub mod render;
-}
-
-use crate::game::run_game_loop;
-
-fn main() {
-    run_game_loop();
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .route("/", web::get().to(hello_world))
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await
 }

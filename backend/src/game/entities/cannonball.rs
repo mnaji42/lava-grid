@@ -1,5 +1,5 @@
-use crate::types::{Player, Cell, Position, Cannonball, TargetedTile};
-use crate::state::GameState;
+use super::types::{Player, Cell, Position, Cannonball, TargetedTile};
+use super::state::GameState;
 use rand::seq::IteratorRandom;
 
 pub fn spawn_random_cannonballs(

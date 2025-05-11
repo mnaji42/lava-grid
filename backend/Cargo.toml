@@ -4,5 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+actix-web = "4.10.2"
+axum = { version = "0.8.4", features = ["json", "ws", "multipart", "tracing"] }
 program = { path = "./program" }
 rand = "0.9.1"
+tokio = { version = "1.45.0", features = ["full"] }
+tower-http = "0.6.4"

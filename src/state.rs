@@ -1,5 +1,5 @@
-use crate::types::{Player, Cell, Cannonball};
-use crate::grid::grid::{generate_grid, break_tile};
+use crate::types::{Player, Cell, Cannonball, TargetedTile};
+use crate::grid::grid::{generate_grid};
 use crate::entities::player::{spawn_random_player};
 use crate::entities::cannonball::{spawn_random_cannonballs};
 use rand::{Rng, rng};
@@ -10,6 +10,7 @@ pub struct GameState {
     pub players: Vec<Player>,
     pub cannonballs: Vec<Cannonball>,
     pub turn: u32,
+    pub targeted_tiles: Vec<TargetedTile>,
 }
 
 impl GameState {
@@ -30,12 +31,12 @@ impl GameState {
             players,
             cannonballs,
             turn: 1,
+            targeted_tiles: Vec::new()
         }
     }
 
     // Passe au tour suivant
     pub fn next_turn(&mut self) {
         self.turn += 1;
-        break_tile(self);  // Cassure de tuile à chaque tour
     }
 }

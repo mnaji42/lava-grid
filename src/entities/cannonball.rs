@@ -1,4 +1,5 @@
-use crate::types::{Player, Cell, Position, Cannonball};
+use crate::types::{Player, Cell, Position, Cannonball, TargetedTile};
+use crate::state::GameState;
 use rand::seq::IteratorRandom;
 
 pub fn spawn_random_cannonballs(
@@ -38,4 +39,14 @@ pub fn spawn_random_cannonballs(
         .into_iter()
         .map(|pos| Cannonball { pos: *pos })
         .collect()
+}
+
+pub fn shoot_cannonball(game_state: &mut GameState, player_id: usize, x: usize, y: usize) {
+    let player = &mut game_state.players[player_id];
+    if player.cannonball_count > 0 {
+        if !game_state.targeted_tiles.iter().any(|t| t.x == x && t.y == y) {
+            game_state.targeted_tiles.push(TargetedTile { x, y });
+            player.cannonball_count -= 1;
+        }
+    }
 }

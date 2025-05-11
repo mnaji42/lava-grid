@@ -42,3 +42,9 @@ impl Player {
 pub struct Cannonball {
     pub pos: Position,
 }
+
+#[derive(Debug, Clone)]
+pub struct TargetedTile {
+    pub x: usize,
+    pub y: usize,
+}

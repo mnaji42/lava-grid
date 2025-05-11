@@ -1,4 +1,4 @@
-use super::types::{Player, Cell, Position};
+use crate::game::types::{Player, Cell, Position};
 use rand::seq::IteratorRandom;
 
 /// Generate new player with random position

@@ -1,5 +1,5 @@
-use super::types::{Direction, Position};
-use super::state::GameState;
+use crate::game::types::{Direction, Position};
+use crate::game::state::GameState;
 
 pub fn move_player(game_state: &mut GameState, player_index: usize, direction: Direction) -> Position {
     let player = &mut game_state.players[player_index];

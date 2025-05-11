@@ -1,6 +1,6 @@
-use self::systems::{movement::move_player, rules::apply_rules, render::print_player_state,render::print_grid};
-use self::types::{Direction};
-use self::state::GameState;
+use crate::game::systems::{move_player, apply_rules, print_player_state, print_grid};
+use crate::game::types::{Direction};
+use crate::game::state::GameState;
 
 use std::io::{self, Write};
 

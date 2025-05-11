@@ -1,7 +1,6 @@
-use self::types::{Player, Cell, Cannonball, TargetedTile};
-use self::grid::{generate_grid};
-use self::entities::player::{spawn_random_player};
-use self::entities::cannonball::{spawn_random_cannonballs};
+use crate::game::types::{Player, Cell, Cannonball, TargetedTile};
+use crate::game::grid::{generate_grid};
+use crate::game::entities::{spawn_random_player, spawn_random_cannonballs};
 use rand::{Rng, rng};
 
 #[derive(Debug)]

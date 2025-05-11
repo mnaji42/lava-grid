@@ -1,5 +1,5 @@
-use super::types::{Cell, Position};
-use super::state::GameState;
+use crate::game::types::{Cell, Position};
+use crate::game::state::GameState;
 use rand::{seq::IteratorRandom};
 
 pub fn generate_grid(rows: usize, cols: usize) -> Vec<Vec<Cell>> {

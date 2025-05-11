@@ -1,5 +1,5 @@
-use self::types::{Cell};
-use self::state::GameState;
+use super::types::{Cell};
+use super::state::GameState;
 
 pub fn resolve_cannonball_hits(game_state: &mut GameState) {
     for tile in &game_state.targeted_tiles {

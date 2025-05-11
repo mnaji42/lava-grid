@@ -1,4 +1,4 @@
-use super::types::{Player, Cell, Cannonball};
+use crate::game::types::{Player, Cell, Cannonball};
 
 // pub fn build_display_grid(
 //     grid: &Vec<Vec<Cell>>,

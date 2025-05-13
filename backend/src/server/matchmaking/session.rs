@@ -45,7 +45,18 @@ impl Handler<ServerWsMessage> for MatchmakingSession {
     type Result = ();
 
     fn handle(&mut self, msg: ServerWsMessage, ctx: &mut Self::Context) {
-        ctx.text(serde_json::to_string(&msg).unwrap());
+        match serde_json::to_string(&msg) {
+            Ok(text) => ctx.text(text),
+            Err(e) => {
+                println!("Failed to serialize ServerWsMessage: {}", e);
+                ctx.text(r#"{"action":"Error","data":"Internal server error"}"#);
+                ctx.close(Some(ws::CloseReason {
+                    code: ws::CloseCode::Error,
+                    description: Some("Internal server error".into()),
+                }));
+                ctx.stop();
+            }
+        }
     }
 }
 

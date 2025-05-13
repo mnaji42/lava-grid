@@ -13,12 +13,12 @@ pub struct MatchmakingState {
 }
 
 // Message client -> serveur
-#[derive(Message)]
-#[rtype(result = "()")]
-pub enum ClientWsMessage {
-    Join { player_id: Uuid, name: String },
-    Leave,
-}
+// #[derive(Message)]
+// #[rtype(result = "()")]
+// pub enum ClientWsMessage {
+//     Join { player_id: Uuid, name: String },
+//     Leave,
+// }
 
 // Message serveur -> client
 #[derive(Message, Serialize, Deserialize, Clone, Debug)]

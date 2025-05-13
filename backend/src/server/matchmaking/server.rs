@@ -1,5 +1,4 @@
 use actix::prelude::*;
-use actix::fut;
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};

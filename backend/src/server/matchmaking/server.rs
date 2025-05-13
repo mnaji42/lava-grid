@@ -38,8 +38,7 @@ impl MatchmakingServer {
 
     fn get_state(&self) -> MatchmakingState {
         let time_remaining = self.countdown.as_ref().map_or(COUNTDOWN_DURATION, |h| {
-            let elapsed = h.start_time.elapsed().as_secs();
-            COUNTDOWN_DURATION.saturating_sub(elapsed)
+            COUNTDOWN_DURATION.saturating_sub(h.start_time.elapsed().as_secs())
         });
 
         MatchmakingState {
@@ -52,29 +51,35 @@ impl MatchmakingServer {
     }
 
     fn start_countdown(&mut self, ctx: &mut Context<Self>) {
-        if self.countdown.is_none() && self.sessions.len() >= MIN_PLAYERS {
 
-            let warning_handle = ctx.run_later(
-                Duration::from_secs(COUNTDOWN_DURATION - PRE_GAME_WARNING_TIME), 
-                |act, _| {
-                    act.broadcast(ServerWsMessage::update_state(act.get_state()));
-                }
-            );
+        let warning_handle = ctx.run_later(
+            Duration::from_secs(COUNTDOWN_DURATION - PRE_GAME_WARNING_TIME), 
+            |act, _| {
+                act.broadcast(ServerWsMessage::update_state(act.get_state()));
+            }
+        );
 
-            let game_start_handle = ctx.run_later(
-                Duration::from_secs(COUNTDOWN_DURATION), 
-                |act, ctx| {
-                    act.broadcast(ServerWsMessage::game_started(Uuid::new_v4()));
-                    ctx.stop();
-                }
-            );
+        let game_start_handle = ctx.run_later(
+            Duration::from_secs(COUNTDOWN_DURATION),
+            |act, ctx| act.start_game(ctx),
+        );
 
-            self.countdown = Some(CountdownHandles {
-                warning_handle,
-                game_start_handle,
-                start_time: Instant::now(),
-            });
+        self.countdown = Some(CountdownHandles {
+            warning_handle,
+            game_start_handle,
+            start_time: Instant::now(),
+        });
+    }
+
+    fn start_game(&mut self, ctx: &mut Context<Self>) {
+        self.broadcast(ServerWsMessage::game_started(Uuid::new_v4()));
+        
+        if let Some(handles) = self.countdown.take() {
+            ctx.cancel_future(handles.warning_handle);
+            ctx.cancel_future(handles.game_start_handle);
         }
+        
+        self.sessions.clear();
     }
 }
 
@@ -104,9 +109,16 @@ impl Handler<Join> for MatchmakingServer {
         };
 
         self.sessions.insert(msg.player_id, (player_info, msg.addr));
-        self.start_countdown(ctx);
-        let state = self.get_state();
-        self.broadcast(ServerWsMessage::player_join(state));
+
+        if self.sessions.len() >= MAX_PLAYERS {
+            self.start_game(ctx);
+        } else {
+            if self.countdown.is_none() && self.sessions.len() >= MIN_PLAYERS {
+                self.start_countdown(ctx);
+            }
+            let state = self.get_state();
+            self.broadcast(ServerWsMessage::player_join(state));
+        }
     }
 }
 

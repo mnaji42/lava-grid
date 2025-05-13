@@ -7,12 +7,14 @@ use super::types::{PlayerInfo};
 use super::messages::{ServerWsMessage, MatchmakingState};
 use super::session::MatchmakingSession;
 use crate::config::matchmaking::{MIN_PLAYERS, COUNTDOWN_DURATION, MAX_PLAYERS, PRE_GAME_WARNING_TIME};
+use crate::server::game_session::server::GameSessionManager;
 
 type SessionAddr = Addr<MatchmakingSession>;
 
 pub struct MatchmakingServer {
     sessions: HashMap<Uuid, (PlayerInfo, SessionAddr)>,
     countdown: Option<CountdownHandles>,
+    game_session_manager: Addr<GameSessionManager>,
 }
 
 struct CountdownHandles {
@@ -21,11 +23,19 @@ struct CountdownHandles {
     start_time: Instant,
 }
 
+#[derive(Message)]
+#[rtype(result = "Uuid")]
+pub struct CreateGame {
+    pub players: Vec<PlayerInfo>,
+}
+
 impl MatchmakingServer {
-    pub fn new() -> Self {
+
+    pub fn new(game_session_manager: Addr<GameSessionManager>) -> Self {
         Self {
             sessions: HashMap::new(),
             countdown: None,
+            game_session_manager,
         }
     }
 
@@ -71,8 +81,26 @@ impl MatchmakingServer {
     }
 
     fn start_game(&mut self, ctx: &mut Context<Self>) {
-        self.broadcast(ServerWsMessage::game_started(Uuid::new_v4()));
+        let players = self.sessions.values()
+            .map(|(player_info, _)| player_info.clone())
+            .collect();
         
+        self.game_session_manager
+            .send(CreateGame { players })
+            .into_actor(self)
+            .then(|res, act, ctx| {
+                match res {
+                    Ok(game_id) => {
+                        act.broadcast(ServerWsMessage::game_started(game_id));
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create game: {}", e);
+                    }
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
+
         if let Some(handles) = self.countdown.take() {
             ctx.cancel_future(handles.warning_handle);
             ctx.cancel_future(handles.game_start_handle);

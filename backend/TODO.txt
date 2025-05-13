@@ -1,0 +1,8 @@
+Points à gérer plus tard:
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////// Matchmaking /////////////////////////////
+
+1. Empêcher plusieurs connexions du même joueur:
+Quand un joueur join je dois checker qu'il n'est pas déjà présent dans la liste des joueurs du matchmaking (a voir comment faire une fois la connexion avec le wallet integré)
+

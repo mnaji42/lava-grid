@@ -1,19 +1,26 @@
+use actix::Actor;
+use actix_web::{web, App, HttpServer};
+use server::matchmaking::server::MatchmakingServer;
+
+pub mod config;
 mod server;
-mod game;
-
-use actix_web::{web, App, HttpServer, Responder};
-
-async fn hello_world() -> impl Responder {
-    "Hello, world!"
-}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| {
+    let matchmaking_addr = MatchmakingServer::new().start();
+    let state = web::Data::new(server::state::AppState::new(matchmaking_addr));
+
+    HttpServer::new(move || {
         App::new()
-            .route("/", web::get().to(hello_world))
+            .wrap(
+                actix_web::middleware::DefaultHeaders::new()
+                    .add(("Access-Control-Allow-Origin", "*"))
+                    .add(("Access-Control-Allow-Headers", "*"))
+            )
+            .app_data(state.clone())
+            .configure(crate::server::router::config)
     })
-    .bind("127.0.0.1:8080")?
+    .bind(("127.0.0.1", 8080))?
     .run()
     .await
 }

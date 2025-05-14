@@ -2,31 +2,54 @@
 import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
 
+type Player = {
+  id: number
+  pos: { x: number; y: number }
+  cannonball_count: number
+  is_alive: boolean
+}
+
+type Cannonball = {
+  pos: { x: number; y: number }
+}
+
+type GameState = {
+  grid: string[][]
+  players: Player[]
+  cannonballs: Cannonball[]
+  turn: number
+  targeted_tiles: any[]
+}
+
 export default function GamePage() {
   const [ws, setWs] = useState<WebSocket | null>(null)
-  const [gameState, setGameState] = useState(null)
-  const [players, setPlayers] = useState([])
+  const [gameState, setGameState] = useState<GameState | null>(null)
   const [connectionStatus, setConnectionStatus] = useState("Connecting...")
+  const [wallet, setWallet] = useState<string | null>(null)
+  const [username, setUsername] = useState<string>("")
+  const [mounted, setMounted] = useState(false)
+
   const { gameId } = useParams()
   const router = useRouter()
 
-  // Gestion du wallet mock
-  const [wallet, setWallet] = useState<string | null>(null)
-  const [username, setUsername] = useState<string>("")
-
+  // S'assurer que le composant est monté côté client avant d'accéder à localStorage
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const w = localStorage.getItem("wallet")
-      if (!w) {
-        router.replace("/")
-        return
-      }
-      setWallet(w)
-      setUsername(localStorage.getItem("username") || "")
-    }
-  }, [router])
+    setMounted(true)
+  }, [])
 
-  // Logout = suppression du wallet et du username
+  // Récupérer wallet/username une fois monté
+  useEffect(() => {
+    if (!mounted) return
+    const w = localStorage.getItem("wallet")
+    if (!w) {
+      router.replace("/")
+      return
+    }
+    setWallet(w)
+    setUsername(localStorage.getItem("username") || "")
+  }, [mounted, router])
+
+  // Logout
   const handleLogout = () => {
     localStorage.removeItem("wallet")
     localStorage.removeItem("username")
@@ -34,8 +57,10 @@ export default function GamePage() {
     router.replace("/")
   }
 
+  // WebSocket
   useEffect(() => {
-    if (!wallet) return
+    if (!wallet || !gameId || !username) return
+
     const socket = new WebSocket(
       `ws://localhost:8080/ws/game/${gameId}?wallet=${encodeURIComponent(
         wallet
@@ -44,7 +69,6 @@ export default function GamePage() {
 
     socket.onopen = () => {
       setConnectionStatus("Connected")
-      console.log("Connected to game session")
     }
 
     socket.onmessage = (event) => {
@@ -52,35 +76,33 @@ export default function GamePage() {
       switch (msg.action) {
         case "GameStateUpdate":
           setGameState(msg.data.state)
-          setPlayers(msg.data.players || [])
           break
         case "GameEnded":
           router.push(`/game-over/${msg.data.winner}`)
           break
         default:
-          console.warn("Unhandled message type:", msg.action)
+          // Optionally handle other actions
+          break
       }
     }
 
     socket.onclose = () => {
       setConnectionStatus("Disconnected")
-      console.log("Game connection closed")
-      // router.push("/")
     }
 
     setWs(socket)
-
     return () => {
       socket.close()
     }
   }, [gameId, wallet, username, router])
 
+  // Envoi des mouvements
   const sendMove = (direction: string) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(
         JSON.stringify({
           action: "PlayerMove",
-          direction: direction,
+          direction,
         })
       )
     }
@@ -88,6 +110,7 @@ export default function GamePage() {
 
   // Gestion des touches clavier
   useEffect(() => {
+    if (!ws) return
     const handleKeyPress = (e: KeyboardEvent) => {
       switch (e.key) {
         case "ArrowUp":
@@ -106,16 +129,14 @@ export default function GamePage() {
           break
       }
     }
-
     window.addEventListener("keydown", handleKeyPress)
     return () => window.removeEventListener("keydown", handleKeyPress)
   }, [ws])
 
-  if (!wallet) {
-    return <div className="p-4 text-center">Redirecting...</div>
-  }
-
-  if (!gameState) {
+  // Sécuriser le rendu : attendre que le composant soit monté et que le wallet soit chargé
+  if (!mounted) return null
+  if (!wallet) return <div className="p-4 text-center">Redirecting...</div>
+  if (!gameState)
     return (
       <div className="p-4 text-center">
         <div className="mb-2">
@@ -133,7 +154,6 @@ export default function GamePage() {
         {connectionStatus}
       </div>
     )
-  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4">
@@ -163,29 +183,38 @@ export default function GamePage() {
           }}
         >
           {gameState.grid.map((row, y) =>
-            row.map((cell, x) => (
-              <div
-                key={`${x}-${y}`}
-                className={`aspect-square flex items-center justify-center
-                                    ${
-                                      cell === "Solid"
-                                        ? "bg-gray-700"
-                                        : "bg-red-900"
-                                    }
-                                    ${
-                                      gameState.players &&
-                                      gameState.players.some(
-                                        (p) =>
-                                          p.position.x === x &&
-                                          p.position.y === y
-                                      )
-                                        ? "bg-blue-500"
-                                        : ""
-                                    }`}
-              >
-                {cell === "Broken" && "🔥"}
-              </div>
-            ))
+            row.map((cell, x) => {
+              // Vérifier si un joueur est sur cette case
+              const playerHere = gameState.players.some(
+                (p) => p.pos.x === x && p.pos.y === y
+              )
+              // Vérifier si un boulet de canon est sur cette case
+              const cannonballHere = gameState.cannonballs.some(
+                (c) => c.pos.x === x && c.pos.y === y
+              )
+              return (
+                <div
+                  key={`${x}-${y}`}
+                  className={`aspect-square flex items-center justify-center
+                    ${cell === "Solid" ? "bg-gray-700" : "bg-red-900"}
+                    ${playerHere ? "bg-blue-500" : ""}
+                    ${cannonballHere ? "border-4 border-yellow-400" : ""}
+                  `}
+                >
+                  {cell === "Broken" && "🔥"}
+                  {playerHere && (
+                    <span role="img" aria-label="player">
+                      🧑
+                    </span>
+                  )}
+                  {cannonballHere && (
+                    <span role="img" aria-label="cannonball">
+                      💣
+                    </span>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
 

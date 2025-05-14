@@ -14,7 +14,7 @@ pub struct ProcessClientMessage {
     pub addr: Addr<GameSessionActor>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum ClientAction {
     Move(Direction),
     Shoot { x: usize, y: usize },
@@ -24,4 +24,13 @@ pub enum ClientAction {
 #[rtype(result = "()")]
 pub struct GameStateUpdate {
     pub state: GameState,
+}
+
+#[derive(Message, Serialize, Deserialize, Clone, Debug)]
+#[rtype(result = "()")]
+#[serde(tag = "action", content = "data")]
+pub enum GameWsMessage {
+    GameStateUpdate { state: GameState },
+    GameEnded { winner: String },
+    Error { message: String },
 }

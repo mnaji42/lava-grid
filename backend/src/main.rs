@@ -9,6 +9,7 @@ mod game;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init();
     let game_session_manager = GameSessionManager::new().start();
     let manager_clone = game_session_manager.clone(); 
     

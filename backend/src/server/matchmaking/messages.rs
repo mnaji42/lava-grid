@@ -12,13 +12,6 @@ pub struct MatchmakingState {
     pub time_remaining: u64,
 }
 
-// Message client -> serveur
-// #[derive(Message)]
-// #[rtype(result = "()")]
-// pub enum ClientWsMessage {
-//     Join { player_id: Uuid, name: String },
-//     Leave,
-// }
 
 // Message serveur -> client
 #[derive(Message, Serialize, Deserialize, Clone, Debug)]
@@ -30,6 +23,9 @@ pub enum ServerWsMessage {
     UpdateState(MatchmakingState),
     GameStarted {
         game_id: Uuid,
+    },
+    Error {
+        message: String,
     },
 }
 
@@ -49,5 +45,11 @@ impl ServerWsMessage {
 
     pub fn game_started(game_id: Uuid) -> Self {
         Self::GameStarted { game_id }
+    }
+
+    pub fn error(message: &str) -> Self {
+        Self::Error {
+            message: message.to_string(),
+        }
     }
 }

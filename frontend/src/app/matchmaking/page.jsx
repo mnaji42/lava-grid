@@ -1,134 +1,3 @@
-// "use client"
-
-// import { useEffect, useRef, useState } from "react"
-// import { useRouter } from "next/navigation"
-
-// export default function MatchmakingPage() {
-//   const [ws, setWs] = useState(null)
-//   const [players, setPlayers] = useState([])
-//   const [countdown, setCountdown] = useState(null)
-//   const [username, setUsername] = useState("")
-//   const router = useRouter()
-//   const countdownRef = useRef(null)
-
-//   // Charger le pseudo depuis le localStorage
-//   useEffect(() => {
-//     const savedUsername = localStorage.getItem("username")
-//     if (savedUsername) {
-//       setUsername(savedUsername)
-//     }
-//   }, [])
-
-//   // Sauvegarder le pseudo dans le localStorage
-//   useEffect(() => {
-//     if (username) {
-//       localStorage.setItem("username", username)
-//     }
-//   }, [username])
-
-//   const connect = () => {
-//     // Connexion WebSocket avec le pseudo en paramètre
-//     const socket = new WebSocket(
-//       `ws://localhost:8080/ws/matchmaking?username=${encodeURIComponent(
-//         username
-//       )}`
-//     )
-
-//     socket.onopen = () => {
-//       console.log("Connected to matchmaking")
-//     }
-
-//     socket.onmessage = (event) => {
-//       const msg = JSON.parse(event.data)
-//       console.log("Server message:", msg)
-
-//       if (msg.PlayerList) {
-//         // Maintenant on reçoit juste la liste des pseudos
-//         setPlayers(msg.data.players)
-//       }
-
-//       if (msg.CountdownStart) {
-//         startCountdown(msg.CountdownStart)
-//       }
-
-//       if (msg.CountdownCancel) {
-//         clearInterval(countdownRef.current)
-//         setCountdown(null)
-//       }
-
-//       if (msg.GameStarted) {
-//         router.push(`/game/${msg.GameStarted.game_id}`)
-//       }
-//     }
-
-//     socket.onclose = () => {
-//       console.log("Disconnected from matchmaking")
-//       clearInterval(countdownRef.current)
-//       setCountdown(null)
-//       setPlayers([])
-//     }
-
-//     setWs(socket)
-//   }
-
-//   const disconnect = () => {
-//     ws?.close()
-//     setWs(null)
-//   }
-
-//   const startCountdown = (seconds) => {
-//     setCountdown(seconds)
-//     countdownRef.current = setInterval(() => {
-//       setCountdown((prev) => {
-//         if (prev <= 1) {
-//           clearInterval(countdownRef.current)
-//           return null
-//         }
-//         return prev - 1
-//       })
-//     }, 1000)
-//   }
-
-//   return (
-//     <div style={{ padding: 20, fontFamily: "sans-serif" }}>
-//       <h1>Matchmaking</h1>
-
-//       <div style={{ marginBottom: 20 }}>
-//         <label>
-//           Pseudo :
-//           <input
-//             style={{ marginLeft: 10 }}
-//             value={username}
-//             onChange={(e) => setUsername(e.target.value)}
-//             placeholder="Entrez votre pseudo"
-//           />
-//         </label>
-//       </div>
-
-//       <div style={{ marginBottom: 20 }}>
-//         {!ws ? (
-//           <button onClick={connect}>Join Matchmaking</button>
-//         ) : (
-//           <button onClick={disconnect}>Leave Matchmaking</button>
-//         )}
-//       </div>
-
-//       <div style={{ marginBottom: 20 }}>
-//         <h3>Joueurs en attente :</h3>
-//         <ul>
-//           {players.map((player, index) => (
-//             <li key={index}>{player}</li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       <div>{countdown !== null && <p>Game starts in: {countdown}s</p>}</div>
-//     </div>
-//   )
-// }
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 "use client"
 
 import { useEffect, useRef, useState } from "react"
@@ -164,16 +33,6 @@ export default function MatchmakingPage() {
 
     socket.onmessage = (event) => {
       const msg = JSON.parse(event.data)
-      console.log("Server message:", msg)
-
-      // if (msg.PlayerList) setPlayers(msg.data.players)
-      // if (msg.CountdownStart) startCountdown(msg.CountdownStart)
-      // if (msg.CountdownCancel) {
-      //   clearInterval(countdownRef.current)
-      //   setCountdown(null)
-      // }
-      // if (msg.GameStarted) router.push(`/game/${msg.GameStarted.game_id}`)
-      console.log(players)
       switch (msg.action) {
         case "PlayerJoin":
         case "PlayerLeave":
@@ -190,6 +49,7 @@ export default function MatchmakingPage() {
           break
 
         case "GameStarted":
+          ws?.close()
           router.push(`/game/${msg.data.game_id}`)
           break
 

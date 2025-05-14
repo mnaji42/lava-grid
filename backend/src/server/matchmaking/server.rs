@@ -81,33 +81,34 @@ impl MatchmakingServer {
     }
 
     fn start_game(&mut self, ctx: &mut Context<Self>) {
-        let players = self.sessions.values()
-            .map(|(player_info, _)| player_info.clone())
-            .collect();
-        
-        self.game_session_manager
-            .send(CreateGame { players })
-            .into_actor(self)
-            .then(|res, act, ctx| {
-                match res {
-                    Ok(game_id) => {
-                        act.broadcast(ServerWsMessage::game_started(game_id));
-                    }
-                    Err(e) => {
-                        log::error!("Failed to create game: {}", e);
-                    }
+    let players = self.sessions.values()
+        .map(|(player_info, _)| player_info.clone())
+        .collect();
+    
+    self.game_session_manager
+        .send(CreateGame { players })
+        .into_actor(self)
+        .then(|res, act, ctx| {
+            match res {
+                Ok(game_id) => {
+                    act.broadcast(ServerWsMessage::game_started(game_id));
                 }
-                fut::ready(())
-            })
-            .wait(ctx);
-
-        if let Some(handles) = self.countdown.take() {
-            ctx.cancel_future(handles.warning_handle);
-            ctx.cancel_future(handles.game_start_handle);
-        }
-        
-        self.sessions.clear();
-    }
+                Err(e) => {
+                    act.broadcast(ServerWsMessage::error("Erreur création partie"));
+                }
+            }
+            
+            act.sessions.clear();
+            
+            if let Some(handles) = act.countdown.take() {
+                ctx.cancel_future(handles.warning_handle);
+                ctx.cancel_future(handles.game_start_handle);
+            }
+            
+            fut::ready(())
+        })
+        .wait(ctx);
+}
 }
 
 impl Actor for MatchmakingServer {

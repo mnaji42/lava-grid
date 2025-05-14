@@ -1,10 +1,12 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+ use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Position {
     pub x: usize,
     pub y: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Direction {
     Up,
     Down,
@@ -13,13 +15,13 @@ pub enum Direction {
     Stay,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Cell {
     Solid,
     Broken,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Player {
     pub id: u8,
     pub pos: Position,
@@ -38,12 +40,12 @@ impl Player {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cannonball {
     pub pos: Position,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetedTile {
     pub x: usize,
     pub y: usize,

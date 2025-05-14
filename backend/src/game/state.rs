@@ -1,9 +1,11 @@
+use serde::{Serialize, Deserialize};
+use rand::{Rng, rng};
+
 use crate::game::types::{Player, Cell, Cannonball, TargetedTile};
 use crate::game::grid::{generate_grid};
 use crate::game::entities::{spawn_random_player, spawn_random_cannonballs};
-use rand::{Rng, rng};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameState {
     pub grid: Vec<Vec<Cell>>,
     pub players: Vec<Player>,

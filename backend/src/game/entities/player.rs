@@ -6,6 +6,7 @@ pub fn spawn_random_player(
     grid: &Vec<Vec<Cell>>,
     players: &Vec<Player>,
     id: u8,
+    username: String,
 ) -> Option<Player> {
     let mut rng = rand::rng();
 
@@ -28,5 +29,5 @@ pub fn spawn_random_player(
 
     valid_positions.into_iter()
         .choose(&mut rng)
-        .map(|pos| Player::new(id, pos))
+        .map(|pos| Player::new(id, pos, username))
 }

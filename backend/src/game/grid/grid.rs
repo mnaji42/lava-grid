@@ -33,7 +33,7 @@ pub fn break_tile(game_state: &mut GameState) {
         }
 
         // Casser la tuile
-        game_state.grid[x][y] = Cell::Broken;
+        game_state.grid[y][x] = Cell::Broken;
     }
 }
 

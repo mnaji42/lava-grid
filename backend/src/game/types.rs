@@ -24,16 +24,18 @@ pub enum Cell {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Player {
     pub id: u8,
+    pub username: String,
     pub pos: Position,
     pub cannonball_count: u32,
     pub is_alive: bool,
 }
 
 impl Player {
-    pub fn new(id: u8, pos: Position) -> Self {
+    pub fn new(id: u8, pos: Position, username: String) -> Self {
         Self {
             id,
             pos,
+            username,
             cannonball_count: 0,
             is_alive: true,
         }

@@ -26,8 +26,8 @@ use crate::game::types::{Player, Cell, Cannonball};
 // }
 
 pub fn print_grid(grid: &Vec<Vec<Cell>>, players: &Vec<Player>, cannonballs: &Vec<Cannonball>) {
-    for (x, row) in grid.iter().enumerate() {
-        for (y, cell) in row.iter().enumerate() {
+    for (y, row) in grid.iter().enumerate() {
+        for (x, cell) in row.iter().enumerate() {
             let mut symbol = match cell {
                 Cell::Solid => "██".to_string(),
                 Cell::Broken => "  ".to_string(),

@@ -40,7 +40,7 @@ impl GameSessionManager {
         //     game_id,
         //     players.iter().map(|p| (&p.id, &p.username)).collect::<Vec<_>>()
         // );
-        let game_state = GameState::new(5, 5, players.len());
+        let game_state = GameState::new(5, 5, players.clone());
 
         let session = GameSession {
             game_id,

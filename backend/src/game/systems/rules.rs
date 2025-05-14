@@ -16,7 +16,7 @@ pub fn apply_rules(game_state: &mut GameState, player_index: usize) {
     }
 
     // Check if there is a tile at the new pos
-    if game_state.grid[player.pos.x][player.pos.y] == Cell::Broken {
+    if game_state.grid[player.pos.y][player.pos.x] == Cell::Broken {
         player.is_alive = false;
     }
 }

@@ -2,8 +2,8 @@ pub mod types;
 pub mod utils;
 pub mod state;
 pub mod tests;
-pub mod standalone;
-pub mod game_loop;
+// pub mod standalone;
+// pub mod game_loop;
 
 pub mod entities;
 pub mod grid;

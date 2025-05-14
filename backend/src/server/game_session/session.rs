@@ -71,7 +71,6 @@ pub async fn ws_game(
         .and_then(|s| Uuid::parse_str(s.split('=').nth(1).unwrap_or("")).ok())
         .unwrap_or_else(Uuid::new_v4); // Générer un ID pour les spectateurs
 
-    println!("Player id: {}", player_id)
     // Vérifier si le joueur fait partie de la partie
     let is_player = data.game_session_manager
         .send(IsPlayerInGame { game_id, player_id })
@@ -79,7 +78,6 @@ pub async fn ws_game(
         .map_err(error::ErrorInternalServerError)?
         .map_err(error::ErrorBadRequest)?;
 
-    println!("Is player: {}", is_player)
     let session_addr = data.game_session_manager
         .send(GetGameSession { game_id })
         .await

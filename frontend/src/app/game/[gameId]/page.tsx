@@ -115,16 +115,11 @@ export default function GamePage() {
     const handleKeyPress = (e: KeyboardEvent) => {
       switch (e.key) {
         case "ArrowUp":
-          sendMove("Up")
-          break
         case "ArrowDown":
-          sendMove("Down")
-          break
         case "ArrowLeft":
-          sendMove("Left")
-          break
         case "ArrowRight":
-          sendMove("Right")
+          e.preventDefault() // Empêche le scroll avec les flèches
+          sendMove(e.key.replace("Arrow", ""))
           break
         default:
           break

@@ -73,6 +73,8 @@ export default function GamePage() {
 
     socket.onmessage = (event) => {
       const msg = JSON.parse(event.data)
+      console.log(msg.data.state.players[0].pos)
+      console.log(msg.data.state.players[1].pos)
       switch (msg.action) {
         case "GameStateUpdate":
           setGameState(msg.data.state)
@@ -101,8 +103,7 @@ export default function GamePage() {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(
         JSON.stringify({
-          action: "PlayerMove",
-          direction,
+          Move: direction, // <-- format attendu par le backend Rust
         })
       )
     }
@@ -219,7 +220,7 @@ export default function GamePage() {
         </div>
 
         {/* Contrôles tactiles */}
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        {/* <div className="mt-4 grid grid-cols-3 gap-2">
           <button
             onClick={() => sendMove("Up")}
             className="col-start-2 bg-gray-700 p-2"
@@ -241,7 +242,7 @@ export default function GamePage() {
           >
             ↓
           </button>
-        </div>
+        </div> */}
       </div>
     </div>
   )

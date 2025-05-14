@@ -46,10 +46,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
             Ok(ws::Message::Text(ref text)) => {
-                // info!(
-                //     "[WS] Message reçu de wallet={} (is_player={}): {}",
-                //     self.player_id, self.is_player, text
-                // );
+                info!(
+                    "[WS] Message reçu de wallet={} (is_player={}): {}",
+                    self.player_id, self.is_player, text
+                );
                 if !self.is_player {
                     warn!(
                         "[WS] Tentative de commande par spectateur: wallet={}",

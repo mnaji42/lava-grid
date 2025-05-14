@@ -153,11 +153,10 @@ impl Handler<ProcessClientMessage> for GameSession {
     type Result = ();
 
     fn handle(&mut self, msg: ProcessClientMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        // info!(
-        //     "[GameSession] Action client reçue: wallet={}",
-        //     msg.player_id
-        // );
-        // TODO: Apply action to game_state, broadcast new state
+        // Trouver l'index du joueur dans self.game_state.players
+        if let Some(player_index) = self.player_infos.iter().position(|p| p.id == msg.player_id) {
+            self.game_state.apply_player_action(msg.msg, player_index);
+        }
         self.send_state();
     }
 }

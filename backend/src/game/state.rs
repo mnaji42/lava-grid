@@ -1,9 +1,11 @@
 use serde::{Serialize, Deserialize};
 use rand::{Rng, rng};
 
-use crate::game::types::{Player, Cell, Cannonball, TargetedTile};
+use crate::game::types::{Player, Cell, Cannonball, TargetedTile, Direction};
 use crate::game::grid::{generate_grid};
-use crate::game::entities::{spawn_random_player, spawn_random_cannonballs};
+use crate::game::entities::{spawn_random_player, spawn_random_cannonballs, shoot_cannonball};
+use crate::game::systems::{move_player, apply_rules};
+use crate::server::game_session::messages::ClientAction;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameState {
@@ -34,6 +36,21 @@ impl GameState {
             turn: 1,
             targeted_tiles: Vec::new()
         }
+    }
+
+    pub fn apply_player_action(&mut self, action: ClientAction, player_index: usize) {
+        match action {
+            ClientAction::Move(direction) => {
+                move_player(self, player_index, direction);
+                apply_rules(self, player_index);
+            }
+            ClientAction::Shoot { x, y } => {
+                shoot_cannonball(self, player_index, x, y);
+                // Optionnel: appliquer les règles si nécessaire après un tir
+                apply_rules(self, player_index);
+            }
+        }
+        self.next_turn();
     }
 
     // Passe au tour suivant

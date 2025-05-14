@@ -2,13 +2,16 @@ use actix::prelude::*;
 use std::collections::HashMap;
 use actix::MessageResult;
 use uuid::Uuid;
-use log::{info, debug};
+use log::{info, debug, warn};
+use std::time::Duration;
 
 use crate::game::state::GameState;
 use crate::server::matchmaking::types::{PlayerInfo, WalletAddress};
 use crate::server::matchmaking::server::CreateGame;
 use crate::server::game_session::session::GameSessionActor;
-use crate::server::game_session::messages::{GameStateUpdate, ProcessClientMessage};
+use crate::server::game_session::messages::{GameStateUpdate, ProcessClientMessage, ClientAction};
+use crate::config::game::{TURN_DURATION};
+use crate::game::types::Direction;
 
 pub struct GameSession {
     pub game_id: Uuid,
@@ -16,10 +19,18 @@ pub struct GameSession {
     pub players: HashMap<WalletAddress, Addr<GameSessionActor>>,
     pub spectators: HashMap<WalletAddress, Addr<GameSessionActor>>,
     pub game_state: GameState,
+
+    pending_actions: HashMap<WalletAddress, ClientAction>,
+    turn_timer: Option<SpawnHandle>,
+    turn_in_progress: bool,
 }
 
 impl Actor for GameSession {
     type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_new_turn(ctx);
+    }
 }
 
 pub struct GameSessionManager {
@@ -35,11 +46,6 @@ impl GameSessionManager {
 
     pub fn create_game(&mut self, players: Vec<PlayerInfo>) -> Uuid {
         let game_id = Uuid::new_v4();
-        // info!(
-        //     "[GameSessionManager] Création d'une nouvelle partie: game_id={} joueurs={:?}",
-        //     game_id,
-        //     players.iter().map(|p| (&p.id, &p.username)).collect::<Vec<_>>()
-        // );
         let game_state = GameState::new(5, 5, players.clone());
 
         let session = GameSession {
@@ -48,6 +54,9 @@ impl GameSessionManager {
             players: HashMap::new(),
             spectators: HashMap::new(),
             game_state,
+            pending_actions: HashMap::new(),
+            turn_timer: None,
+            turn_in_progress: false,
         }.start();
 
         self.sessions.insert(game_id, session);
@@ -63,10 +72,6 @@ impl Handler<CreateGame> for GameSessionManager {
     type Result = MessageResult<CreateGame>;
 
     fn handle(&mut self, msg: CreateGame, _: &mut Context<Self>) -> Self::Result {
-        // info!(
-        //     "[GameSessionManager] Reçu CreateGame pour joueurs={:?}",
-        //     msg.players.iter().map(|p| (&p.id, &p.username)).collect::<Vec<_>>()
-        // );
         MessageResult(self.create_game(msg.players))
     }
 }
@@ -81,10 +86,6 @@ impl Handler<GetGameSession> for GameSessionManager {
     type Result = Result<Addr<GameSession>, String>;
 
     fn handle(&mut self, msg: GetGameSession, _: &mut Context<Self>) -> Self::Result {
-        // debug!(
-        //     "[GameSessionManager] GetGameSession: game_id={}",
-        //     msg.game_id
-        // );
         self.sessions.get(&msg.game_id)
             .cloned()
             .ok_or_else(|| "Game session not found".to_string())
@@ -93,16 +94,68 @@ impl Handler<GetGameSession> for GameSessionManager {
 
 impl GameSession {
     pub fn send_state(&self) {
-        debug!( // Celui la je le garde
+        debug!(
             "[GameSession] Broadcast GameState: game_id={} turn={} players={:?}",
             self.game_id,
             self.game_state.turn,
             self.game_state.players.iter().map(|p| &p.id).collect::<Vec<_>>()
         );
         let state = self.game_state.clone();
-        // Broadcast à tous les joueurs connectés
         for addr in self.players.values().chain(self.spectators.values()) {
             addr.do_send(GameStateUpdate { state: state.clone() });
+        }
+    }
+
+    fn start_new_turn(&mut self, ctx: &mut Context<Self>) {
+        self.turn_in_progress = true;
+        self.pending_actions.clear();
+
+        // Lance le timer de 5 secondes
+        let handle = ctx.run_later(Duration::from_secs(TURN_DURATION), |act, ctx| {
+            act.resolve_turn(ctx);
+        });
+        self.turn_timer = Some(handle);
+
+        // Optionnel: broadcast un message "nouveau tour" si besoin
+        self.send_state();
+    }
+
+    fn resolve_turn(&mut self, ctx: &mut Context<Self>) {
+        self.turn_in_progress = false;
+
+        // Pour chaque joueur vivant, si pas d'action, on met Stay
+        for info in &self.player_infos {
+            if !self.pending_actions.contains_key(&info.id) {
+                // Trouver l'index du joueur dans game_state.players
+                if let Some(idx) = self.game_state.players.iter().position(|p| p.username == info.username && p.is_alive) {
+                    self.pending_actions.insert(info.id.clone(), ClientAction::Move(Direction::Stay));
+                }
+            }
+        }
+
+        // Appliquer toutes les actions dans l'ordre des player_infos
+        for (i, info) in self.player_infos.iter().enumerate() {
+            // Si le joueur est mort, on ne fait rien
+            if let Some(player) = self.game_state.players.get(i) {
+                if !player.is_alive { continue; }
+            }
+            if let Some(action) = self.pending_actions.get(&info.id) {
+                self.game_state.apply_player_action(action.clone(), i);
+            }
+        }
+
+        self.send_state();
+
+        // Préparer le prochain tour si la partie n'est pas finie
+        if self.game_state.players.iter().filter(|p| p.is_alive).count() > 1 {
+            self.start_new_turn(ctx);
+        } else {
+            // Partie terminée
+            let winner = self.game_state.players.iter().find(|p| p.is_alive).map(|p| p.username.clone()).unwrap_or("No winner".to_string());
+            for addr in self.players.values().chain(self.spectators.values()) {
+                addr.do_send(GameStateUpdate { state: self.game_state.clone() });
+                // TODO: envoyer un message GameEnded si besoin
+            }
         }
     }
 }
@@ -118,10 +171,6 @@ impl Handler<IsPlayerInGame> for GameSessionManager {
     type Result = Result<bool, String>;
 
     fn handle(&mut self, msg: IsPlayerInGame, _: &mut Context<Self>) -> Self::Result {
-        // debug!(
-        //     "[GameSessionManager] Vérification si wallet={} est joueur dans game_id={}",
-        //     msg.player_id, msg.game_id
-        // );
         self.sessions.get(&msg.game_id)
             .map(|session_addr| {
                 session_addr.try_send(IsPlayer(msg.player_id.clone()))
@@ -140,24 +189,50 @@ impl Handler<IsPlayer> for GameSession {
     type Result = bool;
 
     fn handle(&mut self, msg: IsPlayer, _: &mut Context<Self>) -> Self::Result {
-        let is_player = self.player_infos.iter().any(|p| p.id == msg.0);
-        // debug!(
-        //     "[GameSession] IsPlayer: wallet={} -> {}",
-        //     msg.0, is_player
-        // );
-        is_player
+        self.player_infos.iter().any(|p| p.id == msg.0)
     }
 }
 
 impl Handler<ProcessClientMessage> for GameSession {
     type Result = ();
 
-    fn handle(&mut self, msg: ProcessClientMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        // Trouver l'index du joueur dans self.game_state.players
-        if let Some(player_index) = self.player_infos.iter().position(|p| p.id == msg.player_id) {
-            self.game_state.apply_player_action(msg.msg, player_index);
+    fn handle(&mut self, msg: ProcessClientMessage, ctx: &mut Context<Self>) -> Self::Result {
+        // Si le tour n'est pas en cours, on ignore
+        if !self.turn_in_progress {
+            warn!("[GameSession] Action reçue alors que le tour n'est pas en cours");
+            return;
         }
-        self.send_state();
+
+        // Trouver l'index du joueur dans self.player_infos
+        let player_index = match self.player_infos.iter().position(|p| p.id == msg.player_id) {
+            Some(idx) => idx,
+            None => return, // joueur inconnu
+        };
+
+        // Vérifier que le joueur est vivant
+        if !self.game_state.players.get(player_index).map(|p| p.is_alive).unwrap_or(false) {
+            warn!("[GameSession] Joueur mort ou inexistant tente d'agir: {}", msg.player_id);
+            return;
+        }
+
+        // Anti-spam: une seule action par tour
+        if self.pending_actions.contains_key(&msg.player_id) {
+            warn!("[GameSession] Joueur {} spamme, action déjà reçue ce tour", msg.player_id);
+            return;
+        }
+
+        // Enregistrer l'action
+        self.pending_actions.insert(msg.player_id.clone(), msg.msg);
+
+        // Si toutes les actions sont reçues, on résout le tour immédiatement
+        let alive_count = self.game_state.players.iter().filter(|p| p.is_alive).count();
+        if self.pending_actions.len() >= alive_count {
+            // Annule le timer
+            if let Some(handle) = self.turn_timer.take() {
+                ctx.cancel_future(handle);
+            }
+            self.resolve_turn(ctx);
+        }
     }
 }
 
@@ -181,10 +256,6 @@ impl Handler<RegisterSession> for GameSession {
     type Result = ();
 
     fn handle(&mut self, msg: RegisterSession, _: &mut Context<Self>) -> Self::Result {
-        // info!(
-        //     "[GameSession] RegisterSession: wallet={} game_id={} is_player={}",
-        //     msg.wallet, self.game_id, msg.is_player
-        // );
         if msg.is_player {
             self.players.insert(msg.wallet.clone(), msg.addr.clone());
         } else {
@@ -200,10 +271,6 @@ impl Handler<UnregisterSession> for GameSession {
     type Result = ();
 
     fn handle(&mut self, msg: UnregisterSession, _: &mut Context<Self>) -> Self::Result {
-        // info!(
-        //     "[GameSession] UnregisterSession: wallet={} game_id={} is_player={}",
-        //     msg.wallet, self.game_id, msg.is_player
-        // );
         if msg.is_player {
             self.players.remove(&msg.wallet);
         } else {

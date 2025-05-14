@@ -14,7 +14,7 @@ pub struct ProcessClientMessage {
     pub addr: Addr<GameSessionActor>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ClientAction {
     Move(Direction),
     Shoot { x: usize, y: usize },

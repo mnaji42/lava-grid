@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
-export default function MatchmakingPage() {
+export default function MatchmakingPage({ wallet }) {
   const [ws, setWs] = useState(null)
   const [players, setPlayers] = useState([])
   const [countdown, setCountdown] = useState(null)
@@ -13,8 +13,10 @@ export default function MatchmakingPage() {
 
   // Charger le pseudo depuis le localStorage
   useEffect(() => {
-    const savedUsername = localStorage.getItem("username")
-    if (savedUsername) setUsername(savedUsername)
+    if (typeof window !== "undefined") {
+      const savedUsername = localStorage.getItem("username") || ""
+      setUsername(savedUsername)
+    }
   }, [])
 
   // Sauvegarder le pseudo
@@ -22,11 +24,14 @@ export default function MatchmakingPage() {
     if (username) localStorage.setItem("username", username)
   }, [username])
 
+  // Si pas de wallet, ne rien afficher (la page parent gère le login)
+  if (!wallet) return null
+
   const connect = () => {
     const socket = new WebSocket(
-      `ws://localhost:8080/ws/matchmaking?username=${encodeURIComponent(
-        username
-      )}`
+      `ws://localhost:8080/ws/matchmaking?wallet=${encodeURIComponent(
+        wallet
+      )}&username=${encodeURIComponent(username)}`
     )
 
     socket.onopen = () => console.log("Connected to matchmaking")
@@ -38,7 +43,12 @@ export default function MatchmakingPage() {
         case "PlayerLeave":
         case "UpdateState":
           const state = msg.data
-          setPlayers(state.players.map((p) => p.username))
+          setPlayers(
+            state.players.map((p) => ({
+              username: p.username,
+              wallet: p.id,
+            }))
+          )
 
           if (state.countdown_active) {
             startCountdown(state.time_remaining)
@@ -122,6 +132,13 @@ export default function MatchmakingPage() {
             </span>
           </div>
 
+          <div className="mb-2">
+            <span className="text-xs text-slate-500">Your wallet:</span>
+            <span className="font-mono bg-slate-100 px-2 py-1 rounded text-slate-800 text-xs ml-2">
+              {wallet}
+            </span>
+          </div>
+
           {countdown !== null && (
             <div className="text-center space-y-2">
               <p className="text-sm text-slate-500">Game starting in</p>
@@ -137,16 +154,19 @@ export default function MatchmakingPage() {
               <div className="space-y-2">
                 {players.map((player) => (
                   <div
-                    key={player}
+                    key={player.wallet}
                     className={`flex items-center p-2 rounded-md ${
-                      player === username
+                      player.wallet === wallet
                         ? "bg-blue-100 border border-blue-200"
                         : "bg-white"
                     }`}
                   >
                     <div className="h-2 w-2 rounded-full bg-green-400 mr-3" />
-                    <span className="font-medium">{player}</span>
-                    {player === username && (
+                    <span className="font-medium">{player.username}</span>
+                    <span className="ml-2 font-mono text-xs text-slate-400">
+                      {player.wallet.slice(0, 8)}...
+                    </span>
+                    {player.wallet === wallet && (
                       <span className="ml-2 px-2 py-1 bg-blue-600 text-white text-xs rounded-full">
                         You
                       </span>

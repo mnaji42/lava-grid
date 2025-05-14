@@ -1,14 +1,14 @@
 use actix::prelude::*;
 use actix_web::{web, Error, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
-use uuid::Uuid;
 use std::borrow::Cow;
 
 use super::messages::ServerWsMessage;
 use super::server::{Join, Leave};
+use super::types::WalletAddress;
 
 pub struct MatchmakingSession {
-    pub player_id: Uuid,
+    pub player_id: WalletAddress,
     pub username: String,
     pub matchmaking_addr: Addr<super::server::MatchmakingServer>,
 }
@@ -18,7 +18,7 @@ impl Actor for MatchmakingSession {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.matchmaking_addr.do_send(Join {
-            player_id: self.player_id,
+            player_id: self.player_id.clone(),
             addr: ctx.address(),
             username: self.username.clone(),
         });
@@ -26,7 +26,7 @@ impl Actor for MatchmakingSession {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         self.matchmaking_addr.do_send(Leave {
-            player_id: self.player_id,
+            player_id: self.player_id.clone(),
         });
     }
 }
@@ -65,16 +65,15 @@ pub async fn ws_matchmaking(
     stream: web::Payload,
     data: web::Data<crate::server::state::AppState>,
 ) -> Result<HttpResponse, Error> {
-    let mut player_id = Uuid::new_v4();
+    let mut player_id: Option<WalletAddress> = None;
     let mut username = String::new();
 
     for kv in req.query_string().split('&') {
         let mut split = kv.split('=');
         match (split.next(), split.next()) {
-            (Some("player_id"), Some(id)) => {
-                if let Ok(uuid) = Uuid::parse_str(id) {
-                    player_id = uuid;
-                }
+            (Some("wallet"), Some(addr)) => {
+                // TODO: Optionally validate address format (0x...)
+                player_id = Some(addr.to_string());
             }
             (Some("username"), Some(name)) => {
                 username = urlencoding::decode(name)
@@ -85,8 +84,16 @@ pub async fn ws_matchmaking(
         }
     }
 
+    let player_id = match player_id {
+        Some(addr) if !addr.is_empty() => addr,
+        _ => {
+            // Reject connection if wallet not provided
+            return Ok(HttpResponse::BadRequest().body("Missing wallet address"));
+        }
+    };
+
     if username.is_empty() {
-        username = format!("Joueur_{}", &player_id.to_string()[..4]);
+        username = format!("Joueur_{}", &player_id[..6]);
     }
 
     ws::start(

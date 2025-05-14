@@ -1,9 +1,9 @@
 use actix::prelude::*;
-use uuid::Uuid;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use uuid::Uuid;
 
-use super::types::{PlayerInfo};
+use super::types::{PlayerInfo, WalletAddress};
 use super::messages::{ServerWsMessage, MatchmakingState};
 use super::session::MatchmakingSession;
 use crate::config::matchmaking::{MIN_PLAYERS, COUNTDOWN_DURATION, MAX_PLAYERS, PRE_GAME_WARNING_TIME};
@@ -12,7 +12,7 @@ use crate::server::game_session::server::GameSessionManager;
 type SessionAddr = Addr<MatchmakingSession>;
 
 pub struct MatchmakingServer {
-    sessions: HashMap<Uuid, (PlayerInfo, SessionAddr)>,
+    sessions: HashMap<WalletAddress, (PlayerInfo, SessionAddr)>,
     countdown: Option<CountdownHandles>,
     game_session_manager: Addr<GameSessionManager>,
 }
@@ -30,7 +30,6 @@ pub struct CreateGame {
 }
 
 impl MatchmakingServer {
-
     pub fn new(game_session_manager: Addr<GameSessionManager>) -> Self {
         Self {
             sessions: HashMap::new(),
@@ -60,7 +59,6 @@ impl MatchmakingServer {
     }
 
     fn start_countdown(&mut self, ctx: &mut Context<Self>) {
-
         let warning_handle = ctx.run_later(
             Duration::from_secs(COUNTDOWN_DURATION - PRE_GAME_WARNING_TIME), 
             |act, _| {
@@ -81,34 +79,34 @@ impl MatchmakingServer {
     }
 
     fn start_game(&mut self, ctx: &mut Context<Self>) {
-    let players = self.sessions.values()
-        .map(|(player_info, _)| player_info.clone())
-        .collect();
-    
-    self.game_session_manager
-        .send(CreateGame { players })
-        .into_actor(self)
-        .then(|res, act, ctx| {
-            match res {
-                Ok(game_id) => {
-                    act.broadcast(ServerWsMessage::game_started(game_id));
+        let players = self.sessions.values()
+            .map(|(player_info, _)| player_info.clone())
+            .collect();
+
+        self.game_session_manager
+            .send(CreateGame { players })
+            .into_actor(self)
+            .then(|res, act, ctx| {
+                match res {
+                    Ok(game_id) => {
+                        act.broadcast(ServerWsMessage::game_started(game_id));
+                    }
+                    Err(_e) => {
+                        act.broadcast(ServerWsMessage::error("Erreur création partie"));
+                    }
                 }
-                Err(e) => {
-                    act.broadcast(ServerWsMessage::error("Erreur création partie"));
+
+                act.sessions.clear();
+
+                if let Some(handles) = act.countdown.take() {
+                    ctx.cancel_future(handles.warning_handle);
+                    ctx.cancel_future(handles.game_start_handle);
                 }
-            }
-            
-            act.sessions.clear();
-            
-            if let Some(handles) = act.countdown.take() {
-                ctx.cancel_future(handles.warning_handle);
-                ctx.cancel_future(handles.game_start_handle);
-            }
-            
-            fut::ready(())
-        })
-        .wait(ctx);
-}
+
+                fut::ready(())
+            })
+            .wait(ctx);
+    }
 }
 
 impl Actor for MatchmakingServer {
@@ -118,7 +116,7 @@ impl Actor for MatchmakingServer {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Join {
-    pub player_id: Uuid,
+    pub player_id: WalletAddress,
     pub addr: SessionAddr,
     pub username: String,
 }
@@ -128,15 +126,15 @@ impl Handler<Join> for MatchmakingServer {
 
     fn handle(&mut self, msg: Join, ctx: &mut Self::Context) -> Self::Result {
         if self.sessions.len() >= MAX_PLAYERS {
-            // TODO gerer le cas si un joueur essaye de rejoindre un matchmaking et qu'il y a deja max_player
+            // TODO: handle max player error
             return;
         }
         let player_info = PlayerInfo {
-            id: msg.player_id,
+            id: msg.player_id.clone(),
             username: msg.username,
         };
 
-        self.sessions.insert(msg.player_id, (player_info, msg.addr));
+        self.sessions.insert(msg.player_id.clone(), (player_info, msg.addr));
 
         if self.sessions.len() >= MAX_PLAYERS {
             self.start_game(ctx);
@@ -153,14 +151,13 @@ impl Handler<Join> for MatchmakingServer {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Leave {
-    pub player_id: Uuid,
+    pub player_id: WalletAddress,
 }
 
 impl Handler<Leave> for MatchmakingServer {
     type Result = ();
 
     fn handle(&mut self, msg: Leave, ctx: &mut Self::Context) -> Self::Result {
-        
         if self.sessions.remove(&msg.player_id).is_some() {
             if self.sessions.len() < MIN_PLAYERS {
                 if let Some(handles) = self.countdown.take() {

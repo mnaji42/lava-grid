@@ -1,16 +1,16 @@
 use actix::prelude::*;
 use serde::{Serialize, Deserialize};
-use uuid::Uuid;
 
 use super::session::GameSessionActor;
 use crate::game::types::Direction;
 use crate::game::state::GameState;
+use crate::server::matchmaking::types::WalletAddress;
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ProcessClientMessage {
     pub msg: ClientAction,
-    pub player_id: Uuid,
+    pub player_id: WalletAddress,
     pub addr: Addr<GameSessionActor>,
 }
 

@@ -1,8 +1,9 @@
 use serde::{Serialize, Deserialize};
-use uuid::Uuid;
+
+pub type WalletAddress = String;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct PlayerInfo {
-    pub id: Uuid,
+    pub id: WalletAddress,
     pub username: String,
 }

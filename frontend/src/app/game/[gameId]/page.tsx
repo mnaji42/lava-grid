@@ -168,7 +168,6 @@ export default function GamePage() {
     const ghost = document.getElementById("ghostPlayer")
     if (!ghost) return
     ghost.style.transition = "transform 0.3s ease"
-    console.log(key)
     switch (key) {
       case "ArrowUp":
         ghost.style.transform = "translateY(-100%)"
@@ -287,6 +286,13 @@ export default function GamePage() {
     )
   }
 
+  const getPlayerAt = (x: number, y: number): Player | undefined =>
+    gameState.players.find((p) => p.pos.x === x && p.pos.y === y && p.is_alive)
+
+  // Helper: get cannonball at a given cell
+  const isCannonballAt = (x: number, y: number): boolean =>
+    gameState.cannonballs.some((c) => c.pos.x === x && c.pos.y === y)
+
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4">
       <div className="max-w-2xl mx-auto">
@@ -381,7 +387,7 @@ export default function GamePage() {
           </div>
 
           {/* Grille de jeu */}
-          <div className="bg-gray-800 p-2 rounded-lg">
+          <div className="bg-gray-800 p-2 rounded-lg text-2xl">
             <div
               className="grid gap-1 border-gray-800 bg-red-900 rounded-lg"
               style={{
@@ -390,14 +396,17 @@ export default function GamePage() {
             >
               {gameState.grid.map((row, y) =>
                 row.map((cell, x) => {
+                  const player = getPlayerAt(x, y)
+                  const cannonballHere = isCannonballAt(x, y)
+                  const isCurrent = player && player.username === username
                   // Vérifier si un joueur est sur cette case
-                  const playerHere = gameState.players.some(
-                    (p) => p.pos.x === x && p.pos.y === y && p.is_alive
-                  )
-                  // Vérifier si un boulet de canon est sur cette case
-                  const cannonballHere = gameState.cannonballs.some(
-                    (c) => c.pos.x === x && c.pos.y === y
-                  )
+                  // const playerHere = gameState.players.some(
+                  //   (p) => p.pos.x === x && p.pos.y === y && p.is_alive
+                  // )
+                  // // Vérifier si un boulet de canon est sur cette case
+                  // const cannonballHere = gameState.cannonballs.some(
+                  //   (c) => c.pos.x === x && c.pos.y === y
+                  // )
                   return (
                     <div
                       key={`${x}-${y}`}
@@ -408,13 +417,31 @@ export default function GamePage() {
                       )}
                     >
                       {cell === "Broken" && "🔥"}
-                      {playerHere && (
+                      {player && (
                         <div className="relative w-full h-full text-center flex items-center justify-center">
+                          <span
+                            className={`
+                            absolute top-1 left-1/2 -translate-x-1/2
+                            px-1 py-0.5 rounded text-xs bg-gray-700/70 text-slate-200
+                            pointer-events-none
+                            transition
+                          `}
+                            style={{
+                              maxWidth: "90%",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              opacity: 0.85,
+                            }}
+                            title={player.username}
+                          >
+                            {player.username}
+                          </span>
                           <span role="img" aria-label="player">
                             🧑
                           </span>
                           <>
-                            {isCurrentPlayerPosition(x, y) && (
+                            {isCurrent && (
                               <div
                                 id="ghostPlayer"
                                 className="w-full h-full absolute opacity-33 flex items-center justify-center"

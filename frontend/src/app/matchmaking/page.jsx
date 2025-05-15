@@ -9,7 +9,8 @@ export default function MatchmakingPage({ wallet }) {
   const [countdown, setCountdown] = useState(null)
   const [username, setUsername] = useState("")
   const router = useRouter()
-  const countdownRef = useRef(null)
+  const countdownEndRef = useRef(null)
+  const timerRef = useRef(null)
 
   // Charger le pseudo depuis le localStorage
   useEffect(() => {
@@ -41,7 +42,7 @@ export default function MatchmakingPage({ wallet }) {
       switch (msg.action) {
         case "PlayerJoin":
         case "PlayerLeave":
-        case "UpdateState":
+        case "UpdateState": {
           const state = msg.data
           setPlayers(
             state.players.map((p) => ({
@@ -53,11 +54,11 @@ export default function MatchmakingPage({ wallet }) {
           if (state.countdown_active) {
             startCountdown(state.time_remaining)
           } else {
-            clearInterval(countdownRef.current)
+            clearTimer()
             setCountdown(null)
           }
           break
-
+        }
         case "GameStarted":
           ws?.close()
           router.push(`/game/${msg.data.game_id}`)
@@ -70,7 +71,7 @@ export default function MatchmakingPage({ wallet }) {
 
     socket.onclose = () => {
       console.log("Disconnected from matchmaking")
-      clearInterval(countdownRef.current)
+      clearTimer()
       setCountdown(null)
       setPlayers([])
     }
@@ -83,18 +84,37 @@ export default function MatchmakingPage({ wallet }) {
     setWs(null)
   }
 
+  // Timer précis basé sur Date.now()
   const startCountdown = (seconds) => {
+    clearTimer()
+    const end = Date.now() + seconds * 1000
+    countdownEndRef.current = end
     setCountdown(seconds)
-    countdownRef.current = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdownRef.current)
-          return null
-        }
-        return prev - 1
-      })
-    }, 1000)
+    const tick = () => {
+      const now = Date.now()
+      const remaining = Math.max(
+        0,
+        Math.round((countdownEndRef.current - now) / 1000)
+      )
+      setCountdown(remaining)
+      if (remaining > 0) {
+        timerRef.current = setTimeout(tick, 250)
+      } else {
+        clearTimer()
+      }
+    }
+    timerRef.current = setTimeout(tick, 250)
   }
+
+  const clearTimer = () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = null
+    countdownEndRef.current = null
+  }
+
+  useEffect(() => {
+    return () => clearTimer()
+  }, [])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4">

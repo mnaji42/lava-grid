@@ -46,6 +46,13 @@ export default function GamePage() {
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const lastTurnRef = useRef<number>(0)
 
+  // Pour la prévisualisation locale du déplacement du joueur
+  const [localPlayerPos, setLocalPlayerPos] = useState<{
+    x: number
+    y: number
+  } | null>(null)
+  const [localTurn, setLocalTurn] = useState<number>(-1)
+
   const { gameId } = useParams()
   const router = useRouter()
 
@@ -119,9 +126,15 @@ export default function GamePage() {
             lastTurnRef.current = msg.data.state.turn
             setHasPlayed(false)
             setPhase("move")
-            // Timer = TURN_DURATION - 2s (latence safe)
-            const safeDuration = Math.max(1, (msg.data.turn_duration || 5) - 1)
+            // Timer = TURN_DURATION - 1s (latence safe)
+            const safeDuration = msg.data.turn_duration - 1
             startTurnTimer(safeDuration)
+            // Reset la position locale au début du tour
+            const currentPlayer = msg.data.state.players.find(
+              (p) => p.username === username
+            )
+            setLocalPlayerPos(currentPlayer ? { ...currentPlayer.pos } : null)
+            setLocalTurn(msg.data.state.turn)
           }
           break
         }
@@ -146,14 +159,51 @@ export default function GamePage() {
     }
   }, [gameId, wallet, username, router])
 
-  // Envoi des mouvements
+  // Applique la règle de déplacement locale
+  function computeNewPos(
+    direction: "Up" | "Down" | "Left" | "Right",
+    pos: { x: number; y: number },
+    grid: string[][]
+  ) {
+    let new_pos = { ...pos }
+    switch (direction) {
+      case "Up":
+        if (new_pos.y > 0) new_pos.y -= 1
+        break
+      case "Down":
+        if (new_pos.y < grid.length - 1) new_pos.y += 1
+        break
+      case "Left":
+        if (new_pos.x > 0) new_pos.x -= 1
+        break
+      case "Right":
+        if (new_pos.x < grid[0].length - 1) new_pos.x += 1
+        break
+    }
+    return new_pos
+  }
+
+  // Envoi des mouvements + preview local
   const sendMove = (direction: string) => {
     if (
       ws &&
       ws.readyState === WebSocket.OPEN &&
       phase === "move" &&
-      !hasPlayed
+      !hasPlayed &&
+      gameState
     ) {
+      // Preview local
+      const currentPlayer = gameState.players.find(
+        (p) => p.username === username
+      )
+      if (currentPlayer && localPlayerPos && localTurn === gameState.turn) {
+        const newPos = computeNewPos(
+          direction as "Up" | "Down" | "Left" | "Right",
+          localPlayerPos,
+          gameState.grid
+        )
+        setLocalPlayerPos(newPos)
+      }
       ws.send(
         JSON.stringify({
           Move: direction, // format attendu par le backend Rust
@@ -164,55 +214,36 @@ export default function GamePage() {
     }
   }
 
-  const moveGohstPlayer = (key) => {
-    const ghost = document.getElementById("ghostPlayer")
-    if (!ghost) return
-    ghost.style.transition = "transform 0.3s ease"
-    console.log(key)
-    switch (key) {
-      case "ArrowUp":
-        ghost.style.transform = "translateY(-100%)"
-        break
-      case "ArrowDown":
-        ghost.style.transform = "translateY(100%)"
-        break
-      case "ArrowLeft":
-        ghost.style.transform = "translateX(-100%)"
-        break
-      case "ArrowRight":
-        ghost.style.transform = "translateX(100%)"
-        break
-    }
-  }
-
-  const removeGohstPlayer = () => {
-    const ghost = document.getElementById("ghostPlayer")
-    if (!ghost) return
-    ghost.style.transition = "none"
-    ghost.style.transform = "none"
-  }
-
   // Gestion des touches clavier
   useEffect(() => {
     if (!ws) return
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (phase !== "move" || hasPlayed) return
+      if (phase !== "move" || hasPlayed || !gameState) return
+      let direction: "Up" | "Down" | "Left" | "Right" | null = null
       switch (e.key) {
         case "ArrowUp":
+          direction = "Up"
+          break
         case "ArrowDown":
+          direction = "Down"
+          break
         case "ArrowLeft":
+          direction = "Left"
+          break
         case "ArrowRight":
-          e.preventDefault()
-          sendMove(e.key.replace("Arrow", ""))
-          moveGohstPlayer(e.key)
+          direction = "Right"
           break
         default:
           break
       }
+      if (direction) {
+        e.preventDefault()
+        sendMove(direction)
+      }
     }
     window.addEventListener("keydown", handleKeyPress)
     return () => window.removeEventListener("keydown", handleKeyPress)
-  }, [ws, phase, hasPlayed])
+  }, [ws, phase, hasPlayed, gameState, localPlayerPos, localTurn])
 
   // Sécuriser le rendu : attendre que le composant soit monté et que le wallet soit chargé
   if (!mounted) return null
@@ -249,19 +280,24 @@ export default function GamePage() {
     return player.username === username
   }
 
-  const isCurrentPlayerPosition = (x: number, y: number) => {
-    const currPlayer = gameState.players.find(
-      (player) => player.username === username
-    )
-    return currPlayer?.pos.x === x && currPlayer.pos.y === y
-  }
-
   // Affichage du timer et du message d'action
   let actionMessage = ""
   if (phase === "move") {
     actionMessage = hasPlayed ? "Waiting for other players..." : "Your turn!"
   } else if (phase === "wait") {
     actionMessage = "Waiting for other players..."
+  }
+
+  // Pour la grille, on veut afficher la position locale du joueur courant si elle existe
+  function getPlayerPos(player: Player): { x: number; y: number } {
+    if (
+      isCurrentPlayer(player) &&
+      localPlayerPos &&
+      localTurn === gameState.turn
+    ) {
+      return localPlayerPos
+    }
+    return player.pos
   }
 
   return (
@@ -366,10 +402,11 @@ export default function GamePage() {
           >
             {gameState.grid.map((row, y) =>
               row.map((cell, x) => {
-                // Vérifier si un joueur est sur cette case
-                const playerHere = gameState.players.some(
-                  (p) => p.pos.x === x && p.pos.y === y && p.is_alive
-                )
+                // Vérifier si un joueur est sur cette case (en tenant compte du local preview)
+                const playerHere = gameState.players.some((p) => {
+                  const pos = getPlayerPos(p)
+                  return pos.x === x && pos.y === y && p.is_alive
+                })
                 // Vérifier si un boulet de canon est sur cette case
                 const cannonballHere = gameState.cannonballs.some(
                   (c) => c.pos.x === x && c.pos.y === y
@@ -386,23 +423,9 @@ export default function GamePage() {
                   >
                     {cell === "Broken" && "🔥"}
                     {playerHere && (
-                      <div className="relative w-full h-full text-center flex items-center justify-center">
-                        <span role="img" aria-label="player">
-                          🧑
-                        </span>
-                        <>
-                          {isCurrentPlayerPosition(x, y) && (
-                            <div
-                              id="ghostPlayer"
-                              className="w-full h-full absolute opacity-33 flex items-center justify-center"
-                              role="img"
-                              aria-label="player"
-                            >
-                              🧑
-                            </div>
-                          )}
-                        </>
-                      </div>
+                      <span role="img" aria-label="player">
+                        🧑
+                      </span>
                     )}
                     {cannonballHere && (
                       <span role="img" aria-label="cannonball">

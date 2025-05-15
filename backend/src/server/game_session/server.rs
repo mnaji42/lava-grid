@@ -102,7 +102,7 @@ impl GameSession {
         );
         let state = self.game_state.clone();
         for addr in self.players.values().chain(self.spectators.values()) {
-            addr.do_send(GameStateUpdate { state: state.clone() });
+            addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
         }
     }
 
@@ -120,7 +120,13 @@ impl GameSession {
         self.send_state();
     }
 
+    
     fn resolve_turn(&mut self, ctx: &mut Context<Self>) {
+        // Garde anti-double appel
+        if !self.turn_in_progress {
+            // Déjà résolu ce tour, on ignore
+            return;
+        }
         self.turn_in_progress = false;
 
         // Pour chaque joueur vivant, si pas d'action, on met Stay
@@ -144,7 +150,11 @@ impl GameSession {
             }
         }
 
-        self.send_state();
+        // Appliquer les règles globales à la fin du tour
+        // self.game_state.apply_all_rules();
+
+        // Incrémenter le tour UNE SEULE FOIS ici
+        self.game_state.next_turn();
 
         // Préparer le prochain tour si la partie n'est pas finie
         if self.game_state.players.iter().filter(|p| p.is_alive).count() > 1 {
@@ -153,11 +163,12 @@ impl GameSession {
             // Partie terminée
             let winner = self.game_state.players.iter().find(|p| p.is_alive).map(|p| p.username.clone()).unwrap_or("No winner".to_string());
             for addr in self.players.values().chain(self.spectators.values()) {
-                addr.do_send(GameStateUpdate { state: self.game_state.clone() });
+                addr.do_send(GameStateUpdate { state: self.game_state.clone(), turn_duration: TURN_DURATION });
                 // TODO: envoyer un message GameEnded si besoin
             }
         }
     }
+
 }
 
 #[derive(Message)]
@@ -262,7 +273,7 @@ impl Handler<RegisterSession> for GameSession {
             self.spectators.insert(msg.wallet.clone(), msg.addr.clone());
         }
         let state = self.game_state.clone();
-        msg.addr.do_send(GameStateUpdate { state });
+        msg.addr.do_send(GameStateUpdate { state, turn_duration: TURN_DURATION });
     }
 }
 

@@ -3,10 +3,8 @@ use crate::game::state::GameState;
 use crate::game::grid::{break_tile};
 use crate::game::utils::{resolve_cannonball_hits};
 
-pub fn apply_rules(game_state: &mut GameState, player_index: usize) {
+pub fn apply_player_rules(game_state: &mut GameState, player_index: usize) {
 
-    break_tile(game_state);
-    resolve_cannonball_hits(game_state);
     let player = &mut game_state.players[player_index];
 
     // Try to pick up cannonball
@@ -19,4 +17,9 @@ pub fn apply_rules(game_state: &mut GameState, player_index: usize) {
     if game_state.grid[player.pos.y][player.pos.x] == Cell::Broken {
         player.is_alive = false;
     }
+}
+
+pub fn apply_rules(game_state: &mut GameState) {
+    break_tile(game_state);
+    resolve_cannonball_hits(game_state);
 }

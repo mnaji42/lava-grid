@@ -4,7 +4,7 @@ use rand::{Rng, rng};
 use crate::game::types::{Player, Cell, Cannonball, TargetedTile, Direction};
 use crate::game::grid::{generate_grid};
 use crate::game::entities::{spawn_random_player, spawn_random_cannonballs, shoot_cannonball};
-use crate::game::systems::{move_player, apply_rules};
+use crate::game::systems::{move_player, apply_rules, apply_player_rules};
 use crate::server::game_session::messages::ClientAction;
 use crate::server::matchmaking::types::PlayerInfo;
 
@@ -50,19 +50,16 @@ impl GameState {
         match action {
             ClientAction::Move(direction) => {
                 move_player(self, player_index, direction);
-                apply_rules(self, player_index);
             }
             ClientAction::Shoot { x, y } => {
                 shoot_cannonball(self, player_index, x, y);
-                // Optionnel: appliquer les règles si nécessaire après un tir
-                apply_rules(self, player_index);
             }
         }
-        self.next_turn();
+        apply_player_rules(self, player_index);
     }
 
-    // Passe au tour suivant
     pub fn next_turn(&mut self) {
+        apply_rules(self);
         self.turn += 1;
     }
 }

@@ -24,13 +24,14 @@ pub enum ClientAction {
 #[rtype(result = "()")]
 pub struct GameStateUpdate {
     pub state: GameState,
+    pub turn_duration: u64,
 }
 
 #[derive(Message, Serialize, Deserialize, Clone, Debug)]
 #[rtype(result = "()")]
 #[serde(tag = "action", content = "data")]
 pub enum GameWsMessage {
-    GameStateUpdate { state: GameState },
+    GameStateUpdate { state: GameState, turn_duration: u64 },
     GameEnded { winner: String },
     Error { message: String },
 }

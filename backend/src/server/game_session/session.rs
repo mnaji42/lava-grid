@@ -19,10 +19,6 @@ impl Actor for GameSessionActor {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        // info!(
-        //     "[WS] Connexion: wallet={} game_id={} is_player={}",
-        //     self.player_id, self.game_id, self.is_player
-        // );
         self.session_addr.do_send(RegisterSession {
             wallet: self.player_id.clone(),
             addr: ctx.address(),
@@ -31,10 +27,6 @@ impl Actor for GameSessionActor {
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
-        // info!(
-        //     "[WS] Déconnexion: wallet={} game_id={}",
-        //     self.player_id, self.game_id
-        // );
         self.session_addr.do_send(UnregisterSession {
             wallet: self.player_id.clone(),
             is_player: self.is_player,
@@ -105,7 +97,7 @@ impl Handler<GameStateUpdate> for GameSessionActor {
             msg.state.turn,
             msg.state.players.iter().map(|p| (p.id, p.pos, p.is_alive)).collect::<Vec<_>>()
         );
-        let ws_msg = GameWsMessage::GameStateUpdate { state: msg.state };
+        let ws_msg = GameWsMessage::GameStateUpdate { state: msg.state, turn_duration: msg.turn_duration };
         match serde_json::to_string(&ws_msg) {
             Ok(text) => ctx.text(text),
             Err(e) => {

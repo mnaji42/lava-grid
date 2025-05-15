@@ -60,6 +60,9 @@ impl GameState {
 
     pub fn next_turn(&mut self) {
         apply_rules(self);
+        for i in 0..self.players.len() {
+            apply_player_rules(self, i);
+        }
         self.turn += 1;
     }
 }

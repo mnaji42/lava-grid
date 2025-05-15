@@ -264,6 +264,29 @@ export default function GamePage() {
     actionMessage = "Waiting for other players..."
   }
 
+  const getTailwindCell = (
+    cell: string,
+    currentPlayerHere: boolean,
+    cannonballHere: boolean
+  ) => {
+    let tailwind = ``
+
+    // Handle border:
+    if (currentPlayerHere) tailwind += " border-blue-500"
+    else if (cannonballHere) tailwind += "  border-yellow-400"
+    else if (cell === "Solid") tailwind += " border-gray-800"
+    else if (cell === "Broken") tailwind += " border-red-900"
+
+    // Handle bg:
+    if (cell === "Solid") tailwind += " bg-gray-700"
+    else if (cell === "Broken") tailwind += " bg-red-900"
+
+    return (
+      "aspect-square flex items-center justify-center border-2 rounded transition" +
+      tailwind
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4">
       <div className="max-w-2xl mx-auto">
@@ -358,61 +381,62 @@ export default function GamePage() {
           </div>
 
           {/* Grille de jeu */}
-          <div
-            className="grid gap-1 bg-gray-800 p-2 rounded-lg"
-            style={{
-              gridTemplateColumns: `repeat(${gameState.grid[0].length}, minmax(0, 1fr))`,
-            }}
-          >
-            {gameState.grid.map((row, y) =>
-              row.map((cell, x) => {
-                // Vérifier si un joueur est sur cette case
-                const playerHere = gameState.players.some(
-                  (p) => p.pos.x === x && p.pos.y === y && p.is_alive
-                )
-                // Vérifier si un boulet de canon est sur cette case
-                const cannonballHere = gameState.cannonballs.some(
-                  (c) => c.pos.x === x && c.pos.y === y
-                )
-                return (
-                  <div
-                    key={`${x}-${y}`}
-                    className={`aspect-square flex items-center justify-center
-                    ${cell === "Solid" ? "bg-gray-700" : "bg-red-900"}
-                    ${playerHere ? "bg-blue-500" : ""}
-                    ${cannonballHere ? "border-4 border-yellow-400" : ""}
-                    rounded transition
-                  `}
-                  >
-                    {cell === "Broken" && "🔥"}
-                    {playerHere && (
-                      <div className="relative w-full h-full text-center flex items-center justify-center">
-                        <span role="img" aria-label="player">
-                          🧑
+          <div className="bg-gray-800 p-2 rounded-lg">
+            <div
+              className="grid gap-1 border-gray-800 bg-red-900 rounded-lg"
+              style={{
+                gridTemplateColumns: `repeat(${gameState.grid[0].length}, minmax(0, 1fr))`,
+              }}
+            >
+              {gameState.grid.map((row, y) =>
+                row.map((cell, x) => {
+                  // Vérifier si un joueur est sur cette case
+                  const playerHere = gameState.players.some(
+                    (p) => p.pos.x === x && p.pos.y === y && p.is_alive
+                  )
+                  // Vérifier si un boulet de canon est sur cette case
+                  const cannonballHere = gameState.cannonballs.some(
+                    (c) => c.pos.x === x && c.pos.y === y
+                  )
+                  return (
+                    <div
+                      key={`${x}-${y}`}
+                      className={getTailwindCell(
+                        cell,
+                        isCurrentPlayerPosition(x, y),
+                        cannonballHere
+                      )}
+                    >
+                      {cell === "Broken" && "🔥"}
+                      {playerHere && (
+                        <div className="relative w-full h-full text-center flex items-center justify-center">
+                          <span role="img" aria-label="player">
+                            🧑
+                          </span>
+                          <>
+                            {isCurrentPlayerPosition(x, y) && (
+                              <div
+                                id="ghostPlayer"
+                                className="w-full h-full absolute opacity-33 flex items-center justify-center"
+                                role="img"
+                                aria-label="player"
+                              >
+                                🧑
+                              </div>
+                            )}
+                          </>
+                        </div>
+                      )}
+                      {cannonballHere && (
+                        <span role="img" aria-label="cannonball">
+                          💣
                         </span>
-                        <>
-                          {isCurrentPlayerPosition(x, y) && (
-                            <div
-                              id="ghostPlayer"
-                              className="w-full h-full absolute opacity-33 flex items-center justify-center"
-                              role="img"
-                              aria-label="player"
-                            >
-                              🧑
-                            </div>
-                          )}
-                        </>
-                      </div>
-                    )}
-                    {cannonballHere && (
-                      <span role="img" aria-label="cannonball">
-                        💣
-                      </span>
-                    )}
-                  </div>
-                )
-              })
-            )}
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         </div>
 

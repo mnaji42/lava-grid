@@ -1,1 +1,1 @@
-pub const TURN_DURATION: u64 = 5; //secondes
+pub const TURN_DURATION: u64 = 8; //secondes

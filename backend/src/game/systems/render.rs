@@ -30,6 +30,7 @@ pub fn print_grid(grid: &Vec<Vec<Cell>>, players: &Vec<Player>, cannonballs: &Ve
         for (x, cell) in row.iter().enumerate() {
             let mut symbol = match cell {
                 Cell::Solid => "██".to_string(),
+                Cell::Cracked => "Ck".to_string(),
                 Cell::Broken => "  ".to_string(),
             };
 

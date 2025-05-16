@@ -4,4 +4,4 @@ pub mod render;
 
 pub use movement::*;
 pub use rules::*;
-pub use render::*;
+// pub use render::*;

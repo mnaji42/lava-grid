@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use rand::{Rng, rng};
 
-use crate::game::types::{Player, Cell, Cannonball, TargetedTile, Direction};
+use crate::game::types::{Player, Cell, Cannonball, TargetedTile, GameMode}; // Direction supprimé
 use crate::game::grid::{generate_grid};
 use crate::game::entities::{spawn_random_player, spawn_random_cannonballs, shoot_cannonball};
 use crate::game::systems::{move_player, apply_rules, apply_player_rules};
@@ -15,19 +15,14 @@ pub struct GameState {
     pub cannonballs: Vec<Cannonball>,
     pub turn: u32,
     pub targeted_tiles: Vec<TargetedTile>,
+    pub mode: GameMode,
 }
 
 impl GameState {
     // Crée un nouvel état de jeu
-    pub fn new(rows: usize, cols: usize, player_infos: Vec<PlayerInfo>) -> Self {
+    pub fn new(rows: usize, cols: usize, player_infos: Vec<PlayerInfo>, mode: GameMode) -> Self {
         let mut players = vec![];
-        // let player_count = player_infos.len()
 
-        // for id in 1..=player_count {
-        //     if let Some(player) = spawn_random_player(&generate_grid(rows, cols), &players, id as u8, player.username) {
-        //         players.push(player);
-        //     }
-        // }
         for (i, info) in player_infos.iter().enumerate() {
             if let Some(player) = spawn_random_player(&generate_grid(rows, cols), &players, (i+1) as u8, info.username.clone()) {
                 players.push(player);
@@ -42,7 +37,8 @@ impl GameState {
             players,
             cannonballs,
             turn: 1,
-            targeted_tiles: Vec::new()
+            targeted_tiles: Vec::new(),
+            mode,
         }
     }
 

@@ -3,8 +3,8 @@ use actix_web::{web, Error, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
 use std::borrow::Cow;
 
-use super::messages::ServerWsMessage;
-use super::server::{Join, Leave};
+use super::messages::{ServerWsMessage, ClientWsMessage};
+use super::server::{Join, Leave, Pay, CancelPayment};
 use super::types::WalletAddress;
 
 pub struct MatchmakingSession {
@@ -34,6 +34,27 @@ impl Actor for MatchmakingSession {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSession {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
+            Ok(ws::Message::Text(text)) => {
+                // Parse le message JSON du client
+                match serde_json::from_str::<ClientWsMessage>(&text) {
+                    Ok(ClientWsMessage::Pay) => {
+                        self.matchmaking_addr.do_send(Pay {
+                            player_id: self.player_id.clone(),
+                        });
+                    }
+                    Ok(ClientWsMessage::CancelPayment) => {
+                        self.matchmaking_addr.do_send(CancelPayment {
+                            player_id: self.player_id.clone(),
+                        });
+                    }
+                    Ok(ClientWsMessage::Ping) => {
+                        // Optionnel : on pourrait répondre par un pong ou ignorer
+                    }
+                    Err(_e) => {
+                        ctx.text(r#"{"action":"Error","data":{"message":"Invalid client message"}}"#);
+                    }
+                }
+            }
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
             Ok(ws::Message::Close(_)) => ctx.stop(),
             _ => (),

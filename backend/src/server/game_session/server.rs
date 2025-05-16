@@ -2,16 +2,15 @@ use actix::prelude::*;
 use std::collections::HashMap;
 use actix::MessageResult;
 use uuid::Uuid;
-use log::{info, debug, warn};
+use log::{debug, warn};
 use std::time::Duration;
 
 use crate::game::state::GameState;
 use crate::server::matchmaking::types::{PlayerInfo, WalletAddress};
-use crate::server::matchmaking::server::CreateGame;
 use crate::server::game_session::session::GameSessionActor;
 use crate::server::game_session::messages::{GameStateUpdate, ProcessClientMessage, ClientAction};
-use crate::config::game::{TURN_DURATION};
-use crate::game::types::Direction;
+use crate::config::game::TURN_DURATION;
+use crate::game::types::{Direction, GameMode};
 
 pub struct GameSession {
     pub game_id: Uuid,
@@ -37,6 +36,13 @@ pub struct GameSessionManager {
     sessions: HashMap<Uuid, Addr<GameSession>>,
 }
 
+#[derive(Message)]
+#[rtype(result = "Uuid")]
+pub struct CreateGame {
+    pub players: Vec<PlayerInfo>,
+    pub mode: GameMode,
+}
+
 impl GameSessionManager {
     pub fn new() -> Self {
         Self {
@@ -44,9 +50,9 @@ impl GameSessionManager {
         }
     }
 
-    pub fn create_game(&mut self, players: Vec<PlayerInfo>) -> Uuid {
+    pub fn create_game(&mut self, players: Vec<PlayerInfo>, mode: GameMode) -> Uuid {
         let game_id = Uuid::new_v4();
-        let game_state = GameState::new(5, 5, players.clone());
+        let game_state = GameState::new(5, 5, players.clone(), mode);
 
         let session = GameSession {
             game_id,
@@ -72,7 +78,7 @@ impl Handler<CreateGame> for GameSessionManager {
     type Result = MessageResult<CreateGame>;
 
     fn handle(&mut self, msg: CreateGame, _: &mut Context<Self>) -> Self::Result {
-        MessageResult(self.create_game(msg.players))
+        MessageResult(self.create_game(msg.players, msg.mode))
     }
 }
 

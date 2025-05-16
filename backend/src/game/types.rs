@@ -1,5 +1,11 @@
  use serde::{Serialize, Deserialize};
 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GameMode {
+    Classic,
+    Cracked,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Position {
     pub x: usize,
@@ -15,9 +21,10 @@ pub enum Direction {
     Stay,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Cell {
     Solid,
+    Cracked,
     Broken,
 }
 

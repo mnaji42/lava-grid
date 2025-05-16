@@ -2,7 +2,7 @@ use actix::prelude::*;
 use serde::{Serialize, Deserialize};
 
 use super::session::GameSessionActor;
-use crate::game::types::Direction;
+use crate::game::types::{Direction, GameMode};
 use crate::game::state::GameState;
 use crate::server::matchmaking::types::WalletAddress;
 
@@ -31,7 +31,10 @@ pub struct GameStateUpdate {
 #[rtype(result = "()")]
 #[serde(tag = "action", content = "data")]
 pub enum GameWsMessage {
+    GameInit { state: GameState, mode: GameMode },
     GameStateUpdate { state: GameState, turn_duration: u64 },
     GameEnded { winner: String },
     Error { message: String },
+    AvailableGameModes { modes: Vec<GameMode> },
+    PlayerModeChoice { player_id: String, mode: GameMode },
 }

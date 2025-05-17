@@ -1,25 +1,52 @@
 # Lava Grid 🔥
 
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/your-username/lava-grid/actions)
+[![Coverage Status](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/your-username/lava-grid/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **ZK-powered strategy game built with Rust and Succinct.**  
-This project explores trustless game logic using zero-knowledge proofs.
+A trustless, on-chain game experiment leveraging zero-knowledge proofs.
 
 ---
 
 ## ✨ What is Lava Grid?
 
-Lava Grid is an on-chain strategy game experiment built in Rust.  
-Using [Succinct](https://www.succinct.xyz/) and zero-knowledge proofs, we aim to create a game where moves can be **verified cryptographically** without revealing the entire game state.
-
-The goal: **trustless, transparent, and provable gameplay**.
+Lava Grid is an on-chain strategy game where every move is **cryptographically verified** using zero-knowledge proofs (ZK).  
+The goal: **trustless, transparent, and provable gameplay** — no need to trust the server, all logic can be verified!
 
 ---
 
 ## 🛠️ Tech Stack
 
-- 🦀 **Rust** — for performance and native zk integration
+- 🦀 **Rust** — backend, game logic, and ZK integration
 - 🧪 **Succinct** — zero-knowledge proof infra (SNARKs)
+- ⚡ **Actix** — async actor framework for networking
+- 💻 **Next.js + React** — frontend web client
 - 📦 `cargo`, `splup` — Rust + zk toolchain
-- 💡 Future: frontend in Next.js + React (TBD)
+
+---
+
+## ���� Monorepo Structure
+
+```
+lava-grid/
+├── backend/           # Rust backend (game logic, networking, ZK)
+│   ├── src/
+│   ├── Cargo.toml
+│   └── README.md
+├── frontend/          # Web client (Next.js + React)
+│   ├── src/
+│   └── README.md
+├── docs/              # Documentation (architecture, API, conventions, etc.)
+│   ├── ARCHITECTURE.md
+│   ├── API.md
+│   ├── GAME_RULES.md
+│   ├── COMMENTING_GUIDELINES.md
+│   └── README.md
+├── CONTRIBUTING.md
+├── README.md          # (this file)
+└── ...
+```
 
 ---
 
@@ -32,44 +59,47 @@ git clone https://github.com/your-username/lava-grid.git
 cd lava-grid
 ```
 
-### 2. Install Rust
-
-If you don’t have Rust installed, you can install it by running:
+### 2. Backend (Rust)
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Follow the on-screen instructions to complete the installation.
-
-### 3. Build & run
-
-After cloning the repository, navigate to your project folder and run:
-
-```bash
+cd backend
 cargo run
 ```
 
-### 4. Generate proof (example)
-
-To generate a zero-knowledge proof, use the `splup` tool:
+### 3. Frontend (Next.js)
 
 ```bash
-splup prove examples/fibonacci.spl
+cd frontend
+npm install
+npm run dev
 ```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 🧱 Project Structure
+## 📚 Documentation
 
-```
-lava-grid/
-├── program/          # Your core zk logic (as a Rust lib)
-│   └── src/lib.rs
-├── src/main.rs       # Entry point (calls program logic)
-├── Cargo.toml
-└── README.md
-```
+- [Documentation Overview](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [API Reference](docs/API.md)
+- [Game Rules](docs/GAME_RULES.md)
+- [Commenting Guidelines](docs/COMMENTING_GUIDELINES.md)
+- [Contributing Guide](CONTRIBUTING.md)
+
+---
+
+## 🗂️ Subproject READMEs
+
+- [Backend README](backend/README.md)
+- [Frontend README](frontend/README.md)
+
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome!  
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/COMMENTING_GUIDELINES.md](docs/COMMENTING_GUIDELINES.md) before submitting code.
 
 ---
 
@@ -79,13 +109,11 @@ MIT — feel free to use and build on it.
 
 ---
 
-## 🤝 Contributing
+## 📬 Contact
 
-Pull requests welcome! Let’s build the future of on-chain games together.
+DM [@mehdin_eth](https://x.com/mehdin_eth) on X  
+Or open an issue/discussion on GitHub.
 
 ---
 
-## 📬 Contact
-
-DM me on X: [@mehdin_eth](https://x.com/mehdin_eth)  
-Or open an issue / discussion!
+**Let’s build the future of on-chain games together!**

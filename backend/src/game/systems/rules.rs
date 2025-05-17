@@ -4,7 +4,6 @@ use crate::game::grid::break_tile;
 use crate::game::utils::resolve_cannonball_hits;
 
 pub fn apply_player_rules(game_state: &mut GameState, player_index: usize) {
-
     let player = &mut game_state.players[player_index];
 
     // Try to pick up cannonball
@@ -13,8 +12,16 @@ pub fn apply_player_rules(game_state: &mut GameState, player_index: usize) {
         game_state.cannonballs.remove(pos);
     }
 
-    // Check if there is a tile at the new pos
-    if game_state.grid[player.pos.y][player.pos.x] == Cell::Broken {
+    // Vérification des bornes avant d'accéder à la grille
+    let grid_height = game_state.grid.len();
+    let grid_width = if grid_height > 0 { game_state.grid[0].len() } else { 0 };
+
+    if player.pos.y < grid_height && player.pos.x < grid_width {
+        if game_state.grid[player.pos.y][player.pos.x] == Cell::Broken {
+            player.is_alive = false;
+        }
+    } else {
+        // Position invalide, on considère le joueur comme mort (hors de la grille)
         player.is_alive = false;
     }
 }

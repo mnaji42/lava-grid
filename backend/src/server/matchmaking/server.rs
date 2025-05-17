@@ -1,13 +1,15 @@
 use actix::prelude::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use uuid::Uuid;
+use log::{info, debug};
+
 use super::types::{PlayerInfo, WalletAddress};
 use super::messages::{ServerWsMessage, MatchmakingState};
 use super::session::MatchmakingSession;
 use crate::config::matchmaking::{MIN_PLAYERS, MAX_PLAYERS, COUNTDOWN_DURATION_SECS};
-use crate::server::game_session::server::{GameSessionManager, CreateGame};
-use crate::game::types::GameMode;
-use log::{info, warn, debug};
+use crate::server::game_session::messages::RegisterPendingGame;
+use crate::server::game_session::server::GameSessionManager;
 
 type SessionAddr = Addr<MatchmakingSession>;
 
@@ -119,56 +121,88 @@ impl MatchmakingServer {
     //     }
     // }
 
+    // fn try_launch_next_game(&mut self, ctx: &mut Context<Self>) {
+    //     if let Some((group_idx, group)) = self.ready_groups.iter().enumerate().find(|(_, g)| g.len() >= MIN_PLAYERS) {
+    //         let player_infos: Vec<PlayerInfo> = group.values().map(|p| p.info.clone()).collect();
+    //         let player_addrs: Vec<SessionAddr> = group.values().map(|p| p.addr.clone()).collect();
+    //         let group_ids: Vec<WalletAddress> = group.keys().cloned().collect();
+
+    //         // On retire le countdown (la partie va se lancer)
+    //         self.cancel_countdown(ctx);
+
+    //         let game_mode = GameMode::Classic; // TODO: support voting/choice
+    //         let game_session_manager = self.game_session_manager.clone();
+
+    //         // On clone l’index pour le move dans la closure
+    //         let group_idx_clone = group_idx;
+
+    //         game_session_manager
+    //             .send(CreateGame { players: player_infos.clone(), mode: game_mode })
+    //             .into_actor(self)
+    //             .then(move |res, act, ctx| {
+    //                 match res {
+    //                     Ok(game_id) => {
+    //                         for addr in &player_addrs {
+    //                             addr.do_send(ServerWsMessage::GameStarted { game_id });
+    //                         }
+    //                         info!("[Matchmaking] Game started with {} players", player_addrs.len());
+    //                         // On supprime le groupe de la liste (clean)
+    //                         if group_idx_clone < act.ready_groups.len() {
+    //                             act.ready_groups.remove(group_idx_clone);
+    //                         }
+    //                         act.send_state();
+    //                     }
+    //                     Err(_e) => {
+    //                         // TODO: Limiter le nombre de tentatives pour éviter les boucles infinies
+    //                         warn!("[Matchmaking] Game creation failed for group, will retry");
+    //                         // On peut décider de relancer la création ou de notifier les joueurs d’une erreur
+    //                         // Ici, on ne supprime pas le groupe pour pouvoir retenter
+    //                         act.broadcast(ServerWsMessage::Error {
+    //                             message: "Erreur création partie".to_string(),
+    //                         });
+    //                     }
+    //                 }
+    //                 // Après la tentative, si un autre groupe est prêt, on relance le countdown si besoin
+    //                 if let Some(first_group) = act.ready_groups.first() {
+    //                     if first_group.len() >= MIN_PLAYERS && first_group.len() < MAX_PLAYERS && act.countdown.is_none() {
+    //                         act.start_countdown(ctx);
+    //                     }
+    //                 }
+    //                 fut::ready(())
+    //             })
+    //             .wait(ctx);
+    //     }
+    // }
+
     fn try_launch_next_game(&mut self, ctx: &mut Context<Self>) {
         if let Some((group_idx, group)) = self.ready_groups.iter().enumerate().find(|(_, g)| g.len() >= MIN_PLAYERS) {
             let player_infos: Vec<PlayerInfo> = group.values().map(|p| p.info.clone()).collect();
             let player_addrs: Vec<SessionAddr> = group.values().map(|p| p.addr.clone()).collect();
-            let group_ids: Vec<WalletAddress> = group.keys().cloned().collect();
 
             // On retire le countdown (la partie va se lancer)
             self.cancel_countdown(ctx);
 
-            let game_mode = GameMode::Classic; // TODO: support voting/choice
-            let game_session_manager = self.game_session_manager.clone();
+            // Génère un nouvel ID de partie
+            let game_id = Uuid::new_v4();
 
-            // On clone l’index pour le move dans la closure
-            let group_idx_clone = group_idx;
+            // Envoie la création de la GameSession au GameSessionManager
+            self.game_session_manager.do_send(RegisterPendingGame {
+                game_id,
+                players: player_infos.clone(),
+            });
 
-            game_session_manager
-                .send(CreateGame { players: player_infos.clone(), mode: game_mode })
-                .into_actor(self)
-                .then(move |res, act, ctx| {
-                    match res {
-                        Ok(game_id) => {
-                            for addr in &player_addrs {
-                                addr.do_send(ServerWsMessage::GameStarted { game_id });
-                            }
-                            info!("[Matchmaking] Game started with {} players", player_addrs.len());
-                            // On supprime le groupe de la liste (clean)
-                            if group_idx_clone < act.ready_groups.len() {
-                                act.ready_groups.remove(group_idx_clone);
-                            }
-                            act.send_state();
-                        }
-                        Err(_e) => {
-                            // TODO: Limiter le nombre de tentatives pour éviter les boucles infinies
-                            warn!("[Matchmaking] Game creation failed for group, will retry");
-                            // On peut décider de relancer la création ou de notifier les joueurs d’une erreur
-                            // Ici, on ne supprime pas le groupe pour pouvoir retenter
-                            act.broadcast(ServerWsMessage::Error {
-                                message: "Erreur création partie".to_string(),
-                            });
-                        }
-                    }
-                    // Après la tentative, si un autre groupe est prêt, on relance le countdown si besoin
-                    if let Some(first_group) = act.ready_groups.first() {
-                        if first_group.len() >= MIN_PLAYERS && first_group.len() < MAX_PLAYERS && act.countdown.is_none() {
-                            act.start_countdown(ctx);
-                        }
-                    }
-                    fut::ready(())
-                })
-                .wait(ctx);
+            // Notifie chaque joueur de leur game_id et des joueurs de la partie
+            for addr in &player_addrs {
+                addr.do_send(ServerWsMessage::GameStarted { game_id });
+            }
+
+            info!("[Matchmaking] Game created with {} players, game_id={}", player_addrs.len(), game_id);
+
+            // Supprime le groupe de la liste (clean)
+            if group_idx < self.ready_groups.len() {
+                self.ready_groups.remove(group_idx);
+            }
+            self.send_state();
         }
     }
 
@@ -264,7 +298,7 @@ impl Handler<Join> for MatchmakingServer {
 impl Handler<Leave> for MatchmakingServer {
     type Result = ();
 
-    fn handle(&mut self, msg: Leave, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Leave, _ctx: &mut Self::Context) -> Self::Result {
         if self.lobby_players.remove(&msg.player_id).is_some() {
             debug!("[Matchmaking] Player {} left lobby_players", msg.player_id);
             self.send_state();

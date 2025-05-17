@@ -4,8 +4,8 @@ use actix_web_actors::ws;
 use uuid::Uuid;
 use log::{info, warn, error, debug};
 
-use crate::server::game_session::server::{GameSession, IsPlayerInGame, GetGameSession, RegisterSession, UnregisterSession};
-use crate::server::game_session::messages::{ProcessClientMessage, GameStateUpdate, ClientAction, GameWsMessage};
+use crate::server::game_session::server::{GameSession, UnregisterSession, RegisterSession};
+use crate::server::game_session::messages::{GamePreGameData, GameModeChosen, ProcessClientMessage, GameStateUpdate, PlayerAction, GameWsMessage, EnsureGameSession, GameModeVoteUpdate, GameClientWsMessage};
 use crate::server::matchmaking::types::WalletAddress;
 
 pub struct GameSessionActor {
@@ -50,26 +50,49 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                     ctx.text(r#"{"error":"Spectators cannot send commands"}"#);
                     return;
                 }
-                let msg: ClientAction = match serde_json::from_str(text) {
+                debug!(
+                    "[WS] Tentative de parsing du message client pour wallet={}: {}",
+                    self.player_id, text
+                );
+                let msg: GameClientWsMessage = match serde_json::from_str(text) {
                     Ok(m) => m,
                     Err(e) => {
                         warn!(
-                            "[WS] Commande invalide reçue de wallet={}: {}",
-                            self.player_id, e
+                            "[WS] Commande invalide reçue de wallet={}: {} | Texte reçu: {}",
+                            self.player_id, e, text
                         );
                         ctx.text(r#"{"error":"Invalid command"}"#);
                         return;
                     }
                 };
-                // info!(
-                //     "[WS] Action client traitée: wallet={}",
-                //     self.player_id
-                // );
-                self.session_addr.do_send(ProcessClientMessage {
-                    msg,
-                    player_id: self.player_id.clone(),
-                    addr: ctx.address(),
-                });
+                debug!(
+                    "[WS] Message client parsé avec succès pour wallet={}: {:?}",
+                    self.player_id, msg
+                );
+                match msg {
+                    GameClientWsMessage::Move(dir) => {
+                        self.session_addr.do_send(ProcessClientMessage {
+                            msg: PlayerAction::Move(dir),
+                            player_id: self.player_id.clone(),
+                            addr: ctx.address(),
+                        });
+                    }
+                    GameClientWsMessage::Shoot { x, y } => {
+                        self.session_addr.do_send(ProcessClientMessage {
+                            msg: PlayerAction::Shoot { x, y },
+                            player_id: self.player_id.clone(),
+                            addr: ctx.address(),
+                        });
+                    }
+                    GameClientWsMessage::GameModeVote { mode } => {
+                        // Ici, on envoie un message spécifique pour le vote de mode
+                        self.session_addr.do_send(crate::server::game_session::messages::GameModeVote {
+                            player_id: self.player_id.clone(),
+                            mode,
+                        });
+                    }
+                    // Ajoute d'autres variantes ici si besoin
+                }
             }
             Ok(ws::Message::Ping(_)) => {
                 debug!("[WS] Ping reçu de wallet={}", self.player_id);
@@ -87,6 +110,41 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
     }
 }
 
+
+
+impl Handler<GamePreGameData> for GameSessionActor {
+    type Result = ();
+    fn handle(&mut self, msg: GamePreGameData, ctx: &mut Self::Context) -> Self::Result {
+        let ws_msg = GameWsMessage::GamePreGameData(msg);
+        match serde_json::to_string(&ws_msg) {
+            Ok(text) => ctx.text(text),
+            Err(_e) => ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize available game modes"}}"#),
+        }
+    }
+}
+
+impl Handler<GameModeChosen> for GameSessionActor {
+    type Result = ();
+    fn handle(&mut self, msg: GameModeChosen, ctx: &mut Self::Context) -> Self::Result {
+        let ws_msg = GameWsMessage::GameModeChosen(msg);
+        match serde_json::to_string(&ws_msg) {
+            Ok(text) => ctx.text(text),
+            Err(_e) => ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize chosen mode"}}"#),
+        }
+    }
+}
+
+impl Handler<GameModeVoteUpdate> for GameSessionActor {
+    type Result = ();
+    fn handle(&mut self, msg: GameModeVoteUpdate, ctx: &mut Self::Context) -> Self::Result {
+        let ws_msg = GameWsMessage::GameModeVoteUpdate(msg);
+        match serde_json::to_string(&ws_msg) {
+            Ok(text) => ctx.text(text),
+            Err(_e) => ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize vote update"}}"#),
+        }
+    }
+}
+
 impl Handler<GameStateUpdate> for GameSessionActor {
     type Result = ();
     fn handle(&mut self, msg: GameStateUpdate, ctx: &mut Self::Context) -> Self::Result {
@@ -95,7 +153,7 @@ impl Handler<GameStateUpdate> for GameSessionActor {
             self.player_id,
             self.is_player,
             msg.state.turn,
-            msg.state.players.iter().map(|p| (p.id, p.pos, p.is_alive)).collect::<Vec<_>>()
+            msg.state.players.iter().map(|p| (p.id.clone(), p.pos, p.is_alive)).collect::<Vec<_>>()
         );
         let ws_msg = GameWsMessage::GameStateUpdate { state: msg.state, turn_duration: msg.turn_duration };
         match serde_json::to_string(&ws_msg) {
@@ -144,28 +202,18 @@ pub async fn ws_game(
         }
     };
 
-    // info!(
-    //     "[WS] Tentative de connexion: wallet={} game_id={}",
-    //     player_id, game_id
-    // );
-
-    // Vérifier si le joueur fait partie de la partie
-    let is_player = data.game_session_manager
-        .send(IsPlayerInGame { game_id, player_id: player_id.clone() })
-        .await
-        .map_err(error::ErrorInternalServerError)?
-        .map_err(error::ErrorBadRequest)?;
-
-    // info!(
-    //     "[WS] Rôle déterminé pour wallet={} dans game_id={}: is_player={}",
-    //     player_id, game_id, is_player
-    // );
-
+    // Nouvelle logique : on demande la création (ou récupération) de la GameSession à la connexion
     let session_addr = data.game_session_manager
-        .send(GetGameSession { game_id })
+        .send(EnsureGameSession { game_id, mode: None }) // mode: None, à gérer plus tard
         .await
         .map_err(error::ErrorInternalServerError)?
         .map_err(error::ErrorBadRequest)?;
+
+    // On vérifie si le joueur fait partie de la partie (logique existante)
+    let is_player = session_addr
+        .send(crate::server::game_session::server::IsPlayer(player_id.clone()))
+        .await
+        .unwrap_or(false);
 
     ws::start(
         GameSessionActor {

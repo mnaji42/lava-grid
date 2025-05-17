@@ -1,7 +1,6 @@
 use crate::game::types::{Cell, Position, GameMode};
 use crate::game::state::GameState;
-use rand::seq::{IteratorRandom, SliceRandom};
-use rand::prelude::IndexedRandom;
+use rand::seq::{IteratorRandom};
 
 pub fn generate_grid(rows: usize, cols: usize) -> Vec<Vec<Cell>> {
     vec![vec![Cell::Solid; cols]; rows]

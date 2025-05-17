@@ -5,7 +5,7 @@ use crate::game::types::{Player, Cell, Cannonball, TargetedTile, GameMode}; // D
 use crate::game::grid::{generate_grid};
 use crate::game::entities::{spawn_random_player, spawn_random_cannonballs, shoot_cannonball};
 use crate::game::systems::{move_player, apply_rules, apply_player_rules};
-use crate::server::game_session::messages::ClientAction;
+use crate::server::game_session::messages::PlayerAction;
 use crate::server::matchmaking::types::PlayerInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,12 +42,12 @@ impl GameState {
         }
     }
 
-    pub fn apply_player_action(&mut self, action: ClientAction, player_index: usize) {
+    pub fn apply_player_action(&mut self, action: PlayerAction, player_index: usize) {
         match action {
-            ClientAction::Move(direction) => {
+            PlayerAction::Move(direction) => {
                 move_player(self, player_index, direction);
             }
-            ClientAction::Shoot { x, y } => {
+            PlayerAction::Shoot { x, y } => {
                 shoot_cannonball(self, player_index, x, y);
             }
         }

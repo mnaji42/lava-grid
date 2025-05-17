@@ -1,3 +1,5 @@
+//! Unit tests for core game logic and systems.
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -17,6 +19,7 @@ mod tests {
 
         for id in 0..5 {
             let player = spawn_random_player(&grid, &players, id).expect("Failed to spawn player");
+            // Ensure no two players spawn on the same tile.
             assert!(!players.iter().any(|p| p.pos == player.pos));
             players.push(player);
         }
@@ -24,7 +27,7 @@ mod tests {
 
     #[test]
     fn test_spawn_player_no_space() {
-        let mut grid = vec![vec![Cell::Lava; 5]; 5]; // aucune case valide
+        let mut grid = vec![vec![Cell::Lava; 5]; 5]; // No valid tiles.
         let players = vec![];
         let player = spawn_random_player(&grid, &players, 0);
         assert!(player.is_none());
@@ -35,7 +38,8 @@ mod tests {
         let grid = create_grid(5, 5);
         let players = vec![];
         let cannonballs = spawn_random_cannonballs(&grid, &players, 0, 100);
-        assert!(cannonballs.len() <= 25); // au max 25 tiles solides
+        // There should never be more cannonballs than solid tiles.
+        assert!(cannonballs.len() <= 25);
     }
 
     #[test]
@@ -46,6 +50,7 @@ mod tests {
         grid[2][3] = Cell::Lava;
         move_player(&mut player, Direction::Right, &grid);
 
+        // Player should die if moving into lava.
         assert!(!player.is_alive);
     }
 
@@ -59,6 +64,7 @@ mod tests {
         move_player(&mut player, Direction::Right, &grid);
         try_pickup_cannonball(&mut player, &mut cannonballs);
 
+        // Player should pick up the cannonball.
         assert_eq!(player.cannonball_count, 1);
         assert!(cannonballs.is_empty());
     }
@@ -84,7 +90,7 @@ mod tests {
 
         for id in 0..10 {
             if let Some(p) = spawn_random_player(&grid, &players, id) {
-                // Le joueur ne spawn pas sur un cannonball
+                // Player should not spawn on a cannonball.
                 assert!(!cannonballs.iter().any(|c| c.pos == p.pos));
                 players.push(p);
             }

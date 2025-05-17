@@ -1,3 +1,7 @@
+# Cargo.toml
+# Backend for grid-based multiplayer game (matchmaking, game session orchestration, and game logic).
+# See src/ for code and module-level documentation.
+
 [package]
 name = "lava-grid"
 version = "0.1.0"
@@ -17,3 +21,6 @@ serde_json = "1.0.140"
 tokio = { version = "1.45.0", features = ["full"] }
 urlencoding = "2.1.3"
 uuid = { version = "1.16.0", features = ["serde", "v4"] }
+
+[dev-dependencies]
+# Add test/dev dependencies here if needed

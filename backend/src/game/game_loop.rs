@@ -1,9 +1,14 @@
+//! Standalone game loop for local testing/demo.
+//!
+//! This module provides an interactive loop for playing the game in the terminal.
+
 use crate::game::systems::{move_player, apply_rules, print_player_state, print_grid};
-use crate::game::types::{Direction};
+use crate::game::types::Direction;
 use crate::game::state::GameState;
 
 use std::io::{self, Write};
 
+/// Prompt the user for a movement direction.
 fn get_player_input() -> Direction {
     print!("Enter direction (← ↑ ↓ → or Space), then press Enter: ");
     io::stdout().flush().unwrap();
@@ -20,9 +25,11 @@ fn get_player_input() -> Direction {
     }
 }
 
+/// Run the main game loop for a single player.
 pub fn run_game_loop() {
     let player_id = 0;
-    let mut game_state = GameState::new(5, 5, 1); // Initialisation de l'état du jeu
+    // Initialize the game state with a single player.
+    let mut game_state = GameState::new(5, 5, 1); // TODO: Update for multi-player if needed
 
     println!("Game start!");
     print_player_state(&game_state.players[0]);
@@ -31,14 +38,16 @@ pub fn run_game_loop() {
     loop {
         let direction = get_player_input();
         move_player(&mut game_state, player_id, direction);
-        
+
+        // Apply rules for the current player (e.g., pickup, death).
         apply_rules(&mut game_state, player_id);
 
-        game_state.next_turn(); // Passer au tour suivant
+        game_state.next_turn(); // Advance to the next turn.
 
         print_player_state(&game_state.players[0]);
         print_grid(&game_state.grid, &game_state.players, &game_state.cannonballs);
 
+        // If the player is dead, end the game.
         if !game_state.players[0].is_alive {
             println!("Player {} is dead. Game Over!", game_state.players[0].id);
             break;

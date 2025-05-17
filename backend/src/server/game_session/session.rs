@@ -1,3 +1,8 @@
+//! WebSocket session handler for a player or spectator in a game session.
+//!
+//! This actor manages a single WebSocket connection to a game session, handling
+//! incoming client messages (actions, votes) and relaying server updates.
+
 use actix::{Addr, Actor, StreamHandler, AsyncContext, Handler};
 use actix_web::{HttpRequest, HttpResponse, web, Error, error};
 use actix_web_actors::ws;
@@ -8,6 +13,7 @@ use crate::server::game_session::server::{GameSession, UnregisterSession, Regist
 use crate::server::game_session::messages::{GamePreGameData, GameModeChosen, ProcessClientMessage, GameStateUpdate, PlayerAction, GameWsMessage, EnsureGameSession, GameModeVoteUpdate, GameClientWsMessage};
 use crate::server::matchmaking::types::WalletAddress;
 
+/// Represents a WebSocket session for a player or spectator in a game.
 pub struct GameSessionActor {
     pub game_id: Uuid,
     pub player_id: WalletAddress,
@@ -19,6 +25,7 @@ impl Actor for GameSessionActor {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // Register this session with the GameSession actor.
         self.session_addr.do_send(RegisterSession {
             wallet: self.player_id.clone(),
             addr: ctx.address(),
@@ -27,6 +34,7 @@ impl Actor for GameSessionActor {
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
+        // Unregister this session from the GameSession actor.
         self.session_addr.do_send(UnregisterSession {
             wallet: self.player_id.clone(),
             is_player: self.is_player,
@@ -39,26 +47,28 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
         match msg {
             Ok(ws::Message::Text(ref text)) => {
                 info!(
-                    "[WS] Message reçu de wallet={} (is_player={}): {}",
+                    "[WS] Message received from wallet={} (is_player={}): {}",
                     self.player_id, self.is_player, text
                 );
+                // Only allow players (not spectators) to send commands.
                 if !self.is_player {
                     warn!(
-                        "[WS] Tentative de commande par spectateur: wallet={}",
+                        "[WS] Command attempt by spectator: wallet={}",
                         self.player_id
                     );
                     ctx.text(r#"{"error":"Spectators cannot send commands"}"#);
                     return;
                 }
                 debug!(
-                    "[WS] Tentative de parsing du message client pour wallet={}: {}",
+                    "[WS] Attempting to parse client message for wallet={}: {}",
                     self.player_id, text
                 );
+                // Parse the client message as JSON.
                 let msg: GameClientWsMessage = match serde_json::from_str(text) {
                     Ok(m) => m,
                     Err(e) => {
                         warn!(
-                            "[WS] Commande invalide reçue de wallet={}: {} | Texte reçu: {}",
+                            "[WS] Invalid command received from wallet={}: {} | Text: {}",
                             self.player_id, e, text
                         );
                         ctx.text(r#"{"error":"Invalid command"}"#);
@@ -66,9 +76,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                     }
                 };
                 debug!(
-                    "[WS] Message client parsé avec succès pour wallet={}: {:?}",
+                    "[WS] Successfully parsed client message for wallet={}: {:?}",
                     self.player_id, msg
                 );
+                // Handle the parsed client message.
                 match msg {
                     GameClientWsMessage::Move(dir) => {
                         self.session_addr.do_send(ProcessClientMessage {
@@ -85,32 +96,30 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                         });
                     }
                     GameClientWsMessage::GameModeVote { mode } => {
-                        // Ici, on envoie un message spécifique pour le vote de mode
+                        // Forward the mode vote to the session.
                         self.session_addr.do_send(crate::server::game_session::messages::GameModeVote {
                             player_id: self.player_id.clone(),
                             mode,
                         });
                     }
-                    // Ajoute d'autres variantes ici si besoin
+                    // Add other variants here if needed.
                 }
             }
             Ok(ws::Message::Ping(_)) => {
-                debug!("[WS] Ping reçu de wallet={}", self.player_id);
+                debug!("[WS] Ping received from wallet={}", self.player_id);
             }
             Ok(ws::Message::Close(_)) => {
-                info!("[WS] Fermeture de la connexion: wallet={}", self.player_id);
+                info!("[WS] Connection closed: wallet={}", self.player_id);
             }
             Ok(other) => {
-                debug!("[WS] Message WebSocket ignoré: {:?}", other);
+                debug!("[WS] Ignored WebSocket message: {:?}", other);
             }
             Err(e) => {
-                error!("[WS] Erreur WebSocket: wallet={} err={:?}", self.player_id, e);
+                error!("[WS] WebSocket error: wallet={} err={:?}", self.player_id, e);
             }
         }
     }
 }
-
-
 
 impl Handler<GamePreGameData> for GameSessionActor {
     type Result = ();
@@ -149,7 +158,7 @@ impl Handler<GameStateUpdate> for GameSessionActor {
     type Result = ();
     fn handle(&mut self, msg: GameStateUpdate, ctx: &mut Self::Context) -> Self::Result {
         debug!(
-            "[WS] Envoi de GameStateUpdate à wallet={} (is_player={}): turn={} players={:?}",
+            "[WS] Sending GameStateUpdate to wallet={} (is_player={}): turn={} players={:?}",
             self.player_id,
             self.is_player,
             msg.state.turn,
@@ -160,7 +169,7 @@ impl Handler<GameStateUpdate> for GameSessionActor {
             Ok(text) => ctx.text(text),
             Err(e) => {
                 error!(
-                    "[WS] Erreur de sérialisation GameStateUpdate pour wallet={}: {}",
+                    "[WS] Serialization error GameStateUpdate for wallet={}: {}",
                     self.player_id, e
                 );
                 ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize game state"}}"#)
@@ -169,6 +178,8 @@ impl Handler<GameStateUpdate> for GameSessionActor {
     }
 }
 
+/// WebSocket endpoint for joining a game session.
+/// Expects path parameter: `game_id` and query parameter: `wallet`.
 pub async fn ws_game(
     req: HttpRequest,
     stream: web::Payload,
@@ -178,12 +189,12 @@ pub async fn ws_game(
     let game_id = match Uuid::parse_str(&game_id_str) {
         Ok(uuid) => uuid,
         Err(_) => {
-            warn!("[WS] game_id invalide reçu: {}", game_id_str);
+            warn!("[WS] Invalid game_id received: {}", game_id_str);
             return Ok(HttpResponse::BadRequest().body("Invalid game_id"));
         }
     };
 
-    // Récupérer le wallet depuis les query parameters
+    // Extract wallet address from query parameters.
     let mut player_id: Option<WalletAddress> = None;
     for kv in req.query_string().split('&') {
         let mut split = kv.split('=');
@@ -197,19 +208,19 @@ pub async fn ws_game(
     let player_id = match player_id {
         Some(addr) if !addr.is_empty() => addr,
         _ => {
-            warn!("[WS] Connexion refusée: wallet manquant pour game_id={}", game_id);
+            warn!("[WS] Connection refused: missing wallet for game_id={}", game_id);
             return Ok(HttpResponse::BadRequest().body("Missing wallet address"));
         }
     };
 
-    // Nouvelle logique : on demande la création (ou récupération) de la GameSession à la connexion
+    // Request creation or retrieval of the GameSession actor.
     let session_addr = data.game_session_manager
-        .send(EnsureGameSession { game_id, mode: None }) // mode: None, à gérer plus tard
+        .send(EnsureGameSession { game_id, mode: None })
         .await
         .map_err(error::ErrorInternalServerError)?
         .map_err(error::ErrorBadRequest)?;
 
-    // On vérifie si le joueur fait partie de la partie (logique existante)
+    // Check if the wallet is a player in the game.
     let is_player = session_addr
         .send(crate::server::game_session::server::IsPlayer(player_id.clone()))
         .await

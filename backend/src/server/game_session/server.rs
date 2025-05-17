@@ -1,3 +1,8 @@
+//! Game session management and orchestration.
+//!
+//! This module defines the actors responsible for managing game sessions, including
+//! player registration, game state progression, mode voting, and turn resolution.
+
 use actix::prelude::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -6,7 +11,7 @@ use log::{info, warn, debug};
 
 use crate::game::state::GameState;
 use crate::server::matchmaking::types::{PlayerInfo, WalletAddress};
-use crate::server::game_session::session::{GameSessionActor};
+use crate::server::game_session::session::GameSessionActor;
 use crate::config::game::{TURN_DURATION, MODE_CHOICE_DURATION, GRID_ROW, GRID_COL};
 use crate::game::types::{GameMode, Direction};
 use crate::server::game_session::messages::{
@@ -15,6 +20,7 @@ use crate::server::game_session::messages::{
 };
 use rand::prelude::IteratorRandom;
 
+/// Stores pending games waiting for session creation.
 pub struct PendingGames {
     pub pending: HashMap<Uuid, Vec<PlayerInfo>>,
 }
@@ -34,12 +40,14 @@ impl PendingGames {
     }
 }
 
+/// Manages all game sessions and pending games.
 pub struct GameSessionManager {
     sessions: HashMap<Uuid, Addr<GameSession>>,
     pending_games: HashMap<Uuid, Vec<PlayerInfo>>,
 }
 
 impl GameSessionManager {
+    /// Create a new manager.
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),
@@ -47,16 +55,20 @@ impl GameSessionManager {
         }
     }
 
+    /// Register a pending game (called by matchmaking).
     pub fn register_pending_game(&mut self, game_id: Uuid, players: Vec<PlayerInfo>) {
         self.pending_games.insert(game_id, players);
     }
 
+    /// Ensure a GameSession exists for the given game_id, creating it if needed.
     pub fn ensure_game_session(&mut self, game_id: Uuid) -> Result<Addr<GameSession>, String> {
         if let Some(addr) = self.sessions.get(&game_id) {
+            // Session already exists, return it.
             return Ok(addr.clone());
         }
+        // If not, check for pending players and create a new session.
         let players = self.pending_games.remove(&game_id)
-            .ok_or_else(|| "Aucun groupe de joueurs trouvé pour ce game_id".to_string())?;
+            .ok_or_else(|| "No player group found for this game_id".to_string())?;
         let session = GameSession::new(game_id, players).start();
         self.sessions.insert(game_id, session.clone());
         Ok(session)
@@ -83,6 +95,7 @@ impl Handler<EnsureGameSession> for GameSessionManager {
     }
 }
 
+/// Represents a running game session (one per game_id).
 pub struct GameSession {
     pub game_id: Uuid,
     pub player_infos: Vec<PlayerInfo>,
@@ -90,7 +103,7 @@ pub struct GameSession {
     pub spectators: HashMap<WalletAddress, Addr<GameSessionActor>>,
     pub game_state: Option<GameState>,
 
-    // Pré-game
+    // Pre-game phase
     phase: GamePhase,
     mode_votes: HashMap<WalletAddress, GameMode>,
     mode_choice_deadline: Instant,
@@ -98,12 +111,13 @@ pub struct GameSession {
     chosen_mode: Option<GameMode>,
     chosen_by: Option<WalletAddress>,
 
-    // In-game
+    // In-game phase
     pending_actions: HashMap<WalletAddress, PlayerAction>,
     turn_timer: Option<SpawnHandle>,
     turn_in_progress: bool,
 }
 
+/// Represents the current phase of the game.
 #[derive(Debug, Clone, PartialEq)]
 enum GamePhase {
     WaitingForModeChoice,
@@ -111,6 +125,7 @@ enum GamePhase {
 }
 
 impl GameSession {
+    /// Create a new game session for the given players.
     pub fn new(game_id: Uuid, player_infos: Vec<PlayerInfo>) -> Self {
         Self {
             game_id,
@@ -130,12 +145,14 @@ impl GameSession {
         }
     }
 
+    /// Register a player or spectator session.
     fn handle_register_session(&mut self, msg: RegisterSession, _: &mut Context<Self>) {
         if msg.is_player {
             self.players.insert(msg.wallet.clone(), msg.addr.clone());
         } else {
             self.spectators.insert(msg.wallet.clone(), msg.addr.clone());
         }
+        // Send the appropriate state depending on the phase.
         match self.phase {
             GamePhase::WaitingForModeChoice => {
                 let now = Instant::now();
@@ -157,6 +174,7 @@ impl GameSession {
         }
     }
 
+    /// Broadcast pre-game data to all players and spectators.
     fn broadcast_to_players_pre_game_data(&mut self, ctx: &mut Context<Self>) {
         let deadline_secs = self.mode_choice_deadline.saturating_duration_since(Instant::now()).as_secs();
         let msg = GamePreGameData {
@@ -169,7 +187,7 @@ impl GameSession {
         for addr in self.players.values().chain(self.spectators.values()) {
             addr.do_send(msg.clone());
         }
-        // Timer pour la deadline si besoin...
+        // If no timer is set, start one for the mode choice deadline.
         if self.mode_choice_timer.is_none() {
             let handle = ctx.run_later(Duration::from_secs(deadline_secs), |act, ctx| {
                 act.finalize_mode_choice(ctx);
@@ -178,12 +196,15 @@ impl GameSession {
         }
     }
 
+    /// Finalize the mode choice, either by votes or randomly if no votes.
     fn finalize_mode_choice(&mut self, ctx: &mut Context<Self>) {
         let (chosen_mode, chosen_by) = if !self.mode_votes.is_empty() {
+            // If there are votes, pick one at random among the voters.
             let mut rng = rand::rng();
             let (chosen_player, mode) = self.mode_votes.iter().choose(&mut rng).unwrap();
             (mode.clone(), chosen_player.clone())
         } else {
+            // If no votes, pick a mode and a player at random.
             let modes = [GameMode::Classic, GameMode::Cracked];
             let mut rng = rand::rng();
             let mode = *modes.iter().choose(&mut rng).unwrap();
@@ -192,6 +213,7 @@ impl GameSession {
         };
         self.chosen_mode = Some(chosen_mode.clone());
         self.chosen_by = Some(chosen_by.clone());
+        // Notify all clients of the chosen mode.
         for addr in self.players.values().chain(self.spectators.values()) {
             addr.do_send(GameModeChosen {
                 mode: self.chosen_mode.clone().expect("Mode should be chosen before broadcasting"),
@@ -199,12 +221,13 @@ impl GameSession {
             });
         }
 
-        // Initialiser la partie
+        // Initialize the game state with the chosen mode.
         self.game_state = Some(GameState::new(
             GRID_ROW, GRID_COL, self.player_infos.clone(), chosen_mode.clone(),
         ));
         self.phase = GamePhase::InGame;
 
+        // Cancel the mode choice timer if it was set.
         if let Some(handle) = self.mode_choice_timer.take() {
             ctx.cancel_future(handle);
         }
@@ -212,24 +235,28 @@ impl GameSession {
         self.start_new_turn(ctx);
     }
 
+    /// Register a mode vote from a player.
     fn receive_mode_vote(&mut self, player_id: WalletAddress, mode: GameMode, ctx: &mut Context<Self>) {
+        // Only accept votes during the mode choice phase.
         if self.phase != GamePhase::WaitingForModeChoice {
             return;
         }
         self.mode_votes.insert(player_id, mode);
 
-        // Si tous les joueurs ont voté, on peut avancer
+        // If all players have voted, finalize immediately.
         if self.mode_votes.len() >= self.player_infos.len() {
             self.finalize_mode_choice(ctx);
         }
     }
 
+    /// Broadcast the current game state to all players and spectators.
     fn broadcast_to_players_game_state_update(&self, state: &GameState) {
         for addr in self.players.values().chain(self.spectators.values()) {
             addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
         }
     }
 
+    /// Broadcast the chosen mode to all clients.
     fn broadcast_to_players_mode_chosen(&self) {
         let mode = self.chosen_mode.clone().expect("Mode should be chosen before broadcasting");
         let chosen_by = self.chosen_by.clone().expect("Chosen_by should be set before broadcasting");
@@ -241,20 +268,19 @@ impl GameSession {
         }
     }
 
-
+    /// Start the mode choice phase (used for restarts or new games).
     fn start_mode_choice(&mut self, ctx: &mut Context<Self>) {
         self.phase = GamePhase::WaitingForModeChoice;
         self.mode_choice_deadline = Instant::now() + Duration::from_secs(MODE_CHOICE_DURATION);
         self.mode_votes.clear();
         self.chosen_mode = None;
 
-        // Correction : appel sans arguments supplémentaires
         self.broadcast_to_players_pre_game_data(ctx);
 
-        // Le timer est déjà géré dans broadcast_to_players_pre_game_data
         info!("[GameSession] Mode choice started for game_id={}", self.game_id);
     }
 
+    /// Send the current game state to all clients.
     pub fn send_state(&self) {
         if let Some(ref state) = self.game_state {
             debug!(
@@ -267,6 +293,7 @@ impl GameSession {
         }
     }
 
+    /// Start a new turn, resetting actions and launching the timer.
     fn start_new_turn(&mut self, ctx: &mut Context<Self>) {
         if self.game_state.is_none() {
             return;
@@ -274,32 +301,32 @@ impl GameSession {
         self.turn_in_progress = true;
         self.pending_actions.clear();
 
-        // Lance le timer de 5 secondes
+        // Start the turn timer.
         let handle = ctx.run_later(Duration::from_secs(TURN_DURATION), |act, ctx| {
             act.resolve_turn(ctx);
         });
         self.turn_timer = Some(handle);
 
-        // Optionnel: broadcast un message "nouveau tour" si besoin
+        // Optionally broadcast the new turn state.
         if let Some(ref state) = self.game_state {
             self.broadcast_to_players_game_state_update(state);
         }
     }
 
+    /// Resolve the current turn, applying all actions and updating the game state.
     fn resolve_turn(&mut self, ctx: &mut Context<Self>) {
         if self.game_state.is_none() {
             return;
         }
-        // Garde anti-double appel
+        // Prevent double resolution of the same turn.
         if !self.turn_in_progress {
-            // Déjà résolu ce tour, on ignore
             return;
         }
         self.turn_in_progress = false;
 
         let state = self.game_state.as_mut().unwrap();
 
-        // Pour chaque joueur vivant, si pas d'action, on met Stay
+        // For each living player, if no action was received, default to Stay.
         for info in &self.player_infos {
             if !self.pending_actions.contains_key(&info.id) {
                 if let Some(_idx) = state.players.iter().position(|p| p.username == info.username && p.is_alive) {
@@ -308,9 +335,9 @@ impl GameSession {
             }
         }
 
-        // Appliquer toutes les actions dans l'ordre des player_infos
+        // Apply all actions in player order.
         for (i, info) in self.player_infos.iter().enumerate() {
-            // Si le joueur est mort, on ne fait rien
+            // Skip dead players.
             if let Some(player) = state.players.get(i) {
                 if !player.is_alive { continue; }
             }
@@ -319,18 +346,18 @@ impl GameSession {
             }
         }
 
-        // Incrémenter le tour UNE SEULE FOIS ici
+        // Advance the turn counter.
         state.next_turn();
 
-        // Préparer le prochain tour si la partie n'est pas finie
+        // If more than one player is alive, start the next turn.
         if state.players.iter().filter(|p| p.is_alive).count() > 1 {
             self.start_new_turn(ctx);
         } else {
-            // Partie terminée
+            // Game is over, notify all clients.
             let _winner = state.players.iter().find(|p| p.is_alive).map(|p| p.username.clone()).unwrap_or("No winner".to_string());
             for addr in self.players.values().chain(self.spectators.values()) {
                 addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
-                // TODO: envoyer un message GameEnded si besoin
+                // TODO: send a GameEnded message if needed
             }
         }
     }
@@ -340,19 +367,21 @@ impl Actor for GameSession {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // On actor start, broadcast pre-game data if in mode choice phase.
         if self.phase == GamePhase::WaitingForModeChoice {
             self.broadcast_to_players_pre_game_data(ctx);
         }
     }
 }
 
+/// Message to get a GameSession by game_id.
 #[derive(Message)]
 #[rtype(result = "Result<Addr<GameSession>, String>")]
 pub struct GetGameSession {
     pub game_id: Uuid,
 }
 
-// Handler pour GameModeVote (notifie tous les joueurs du vote reçu)
+// Handler for GameModeVote: notifies all players of the vote and finalizes if all have voted.
 impl Handler<GameModeVote> for GameSession {
     type Result = ();
 
@@ -365,6 +394,7 @@ impl Handler<GameModeVote> for GameSession {
         for addr in self.players.values().chain(self.spectators.values()) {
             addr.do_send(vote_update.clone());
         }
+        // If all players have voted, finalize the mode choice.
         if self.mode_votes.len() >= self.player_infos.len() {
             self.finalize_mode_choice(ctx);
         }
@@ -381,6 +411,7 @@ impl Handler<GetGameSession> for GameSessionManager {
     }
 }
 
+/// Message to check if a player is in a game.
 #[derive(Message)]
 #[rtype(result = "Result<bool, String>")]
 pub struct IsPlayerInGame {
@@ -402,6 +433,7 @@ impl Handler<IsPlayerInGame> for GameSessionManager {
     }
 }
 
+/// Message to check if a wallet is a player in the session.
 #[derive(Message)]
 #[rtype(result = "bool")]
 pub struct IsPlayer(pub WalletAddress);
@@ -418,40 +450,41 @@ impl Handler<ProcessClientMessage> for GameSession {
     type Result = ();
 
     fn handle(&mut self, msg: ProcessClientMessage, ctx: &mut Context<Self>) -> Self::Result {
+        // Ignore actions if the game hasn't started.
         if self.game_state.is_none() {
             return;
         }
-        // Si le tour n'est pas en cours, on ignore
+        // Ignore actions if the turn is not in progress.
         if !self.turn_in_progress {
-            warn!("[GameSession] Action reçue alors que le tour n'est pas en cours");
+            warn!("[GameSession] Action received while turn is not in progress");
             return;
         }
 
-        // Trouver l'index du joueur dans self.player_infos
+        // Find the player's index.
         let player_index = match self.player_infos.iter().position(|p| p.id == msg.player_id) {
             Some(idx) => idx,
-            None => return, // joueur inconnu
+            None => return, // Unknown player
         };
 
-        // Vérifier que le joueur est vivant
+        // Only allow actions from living players.
         if !self.game_state.as_ref().unwrap().players.get(player_index).map(|p| p.is_alive).unwrap_or(false) {
-            warn!("[GameSession] Joueur mort ou inexistant tente d'agir: {}", msg.player_id);
+            warn!("[GameSession] Dead or unknown player tried to act: {}", msg.player_id);
             return;
         }
 
-        // Anti-spam: une seule action par tour
+        // Prevent multiple actions per turn.
         if self.pending_actions.contains_key(&msg.player_id) {
-            warn!("[GameSession] Joueur {} spamme, action déjà reçue ce tour", msg.player_id);
+            warn!("[GameSession] Player {} spamming, action already received this turn", msg.player_id);
             return;
         }
 
-        // Enregistrer l'action
+        // Register the action.
         self.pending_actions.insert(msg.player_id.clone(), msg.msg);
 
-        // Si toutes les actions sont reçues, on résout le tour immédiatement
+        // If all living players have acted, resolve the turn immediately.
         let alive_count = self.game_state.as_ref().unwrap().players.iter().filter(|p| p.is_alive).count();
         if self.pending_actions.len() >= alive_count {
-            // Annule le timer
+            // Cancel the timer and resolve the turn.
             if let Some(handle) = self.turn_timer.take() {
                 ctx.cancel_future(handle);
             }
@@ -460,6 +493,7 @@ impl Handler<ProcessClientMessage> for GameSession {
     }
 }
 
+/// Message to register a session (player or spectator).
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct RegisterSession {
@@ -468,6 +502,7 @@ pub struct RegisterSession {
     pub is_player: bool,
 }
 
+/// Message to unregister a session (player or spectator).
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct UnregisterSession {

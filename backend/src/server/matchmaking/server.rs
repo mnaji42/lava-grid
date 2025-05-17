@@ -1,3 +1,8 @@
+/// Matchmaking server actor.
+///
+/// Manages the matchmaking lobby, player readiness, countdowns, and game creation.
+/// Handles player join/leave, payment, and cancellation, and coordinates with the game session manager.
+
 use actix::prelude::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -13,25 +18,33 @@ use crate::server::game_session::server::GameSessionManager;
 
 type SessionAddr = Addr<MatchmakingSession>;
 
+/// Represents a player currently connected to the lobby or ready group.
 #[derive(Debug, Clone)]
 struct ConnectedPlayer {
     info: PlayerInfo,
     addr: SessionAddr,
 }
 
+/// Handle for an active countdown timer.
 struct CountdownHandle {
     handle: SpawnHandle,
     start_time: Instant,
 }
 
+/// Main matchmaking server actor.
 pub struct MatchmakingServer {
+    /// Players in the lobby (not yet ready).
     lobby_players: HashMap<WalletAddress, ConnectedPlayer>,
+    /// Groups of players who have paid and are ready to play.
     ready_groups: Vec<HashMap<WalletAddress, ConnectedPlayer>>,
+    /// Active countdown timer, if any.
     countdown: Option<CountdownHandle>,
+    /// Address of the game session manager for launching games.
     game_session_manager: Addr<GameSessionManager>,
 }
 
 impl MatchmakingServer {
+    /// Create a new matchmaking server.
     pub fn new(game_session_manager: Addr<GameSessionManager>) -> Self {
         Self {
             lobby_players: HashMap::new(),
@@ -41,6 +54,7 @@ impl MatchmakingServer {
         }
     }
 
+    /// Broadcast a message to all players in the lobby and ready groups.
     fn broadcast(&self, msg: ServerWsMessage) {
         for player in self.lobby_players.values() {
             player.addr.do_send(msg.clone());
@@ -52,11 +66,13 @@ impl MatchmakingServer {
         }
     }
 
+    /// Send the current matchmaking state to all clients.
     fn send_state(&self) {
         let state = self.get_state();
         self.broadcast(ServerWsMessage::UpdateState(state));
     }
 
+    /// Build the current matchmaking state.
     fn get_state(&self) -> MatchmakingState {
         let countdown_active = self.countdown.is_some();
         let countdown_remaining = self.countdown.as_ref().map(|c| {
@@ -74,8 +90,10 @@ impl MatchmakingServer {
         }
     }
 
+    /// Start the countdown timer for the next game if not already started.
     fn start_countdown(&mut self, ctx: &mut Context<Self>) {
         if self.countdown.is_some() {
+            // Countdown already active; do nothing.
             return;
         }
         self.send_state();
@@ -89,6 +107,7 @@ impl MatchmakingServer {
         info!("[Matchmaking] Countdown started for next group");
     }
 
+    /// Cancel the countdown timer if active.
     fn cancel_countdown(&mut self, ctx: &mut Context<Self>) {
         if let Some(countdown) = self.countdown.take() {
             ctx.cancel_future(countdown.handle);
@@ -97,108 +116,33 @@ impl MatchmakingServer {
         }
     }
 
-    // fn send_to_players(&self, player_ids: &[WalletAddress], msg: ServerWsMessage) {
-    //     for id in player_ids {
-    //         if let Some(player) = self.lobby_players.get(id) {
-    //             player.addr.do_send(msg.clone());
-    //         }
-    //         if let Some(player) = self.ready_players.get(id) {
-    //             player.addr.do_send(msg.clone());
-    //         }
-    //     }
-    // }
-
-    // fn broadcast_except(&self, excluded_ids: &[WalletAddress], msg: ServerWsMessage) {
-    //     for (id, player) in self.lobby_players.iter() {
-    //         if !excluded_ids.contains(id) {
-    //             player.addr.do_send(msg.clone());
-    //         }
-    //     }
-    //     for (id, player) in self.ready_players.iter() {
-    //         if !excluded_ids.contains(id) {
-    //             player.addr.do_send(msg.clone());
-    //         }
-    //     }
-    // }
-
-    // fn try_launch_next_game(&mut self, ctx: &mut Context<Self>) {
-    //     if let Some((group_idx, group)) = self.ready_groups.iter().enumerate().find(|(_, g)| g.len() >= MIN_PLAYERS) {
-    //         let player_infos: Vec<PlayerInfo> = group.values().map(|p| p.info.clone()).collect();
-    //         let player_addrs: Vec<SessionAddr> = group.values().map(|p| p.addr.clone()).collect();
-    //         let group_ids: Vec<WalletAddress> = group.keys().cloned().collect();
-
-    //         // On retire le countdown (la partie va se lancer)
-    //         self.cancel_countdown(ctx);
-
-    //         let game_mode = GameMode::Classic; // TODO: support voting/choice
-    //         let game_session_manager = self.game_session_manager.clone();
-
-    //         // On clone l’index pour le move dans la closure
-    //         let group_idx_clone = group_idx;
-
-    //         game_session_manager
-    //             .send(CreateGame { players: player_infos.clone(), mode: game_mode })
-    //             .into_actor(self)
-    //             .then(move |res, act, ctx| {
-    //                 match res {
-    //                     Ok(game_id) => {
-    //                         for addr in &player_addrs {
-    //                             addr.do_send(ServerWsMessage::GameStarted { game_id });
-    //                         }
-    //                         info!("[Matchmaking] Game started with {} players", player_addrs.len());
-    //                         // On supprime le groupe de la liste (clean)
-    //                         if group_idx_clone < act.ready_groups.len() {
-    //                             act.ready_groups.remove(group_idx_clone);
-    //                         }
-    //                         act.send_state();
-    //                     }
-    //                     Err(_e) => {
-    //                         // TODO: Limiter le nombre de tentatives pour éviter les boucles infinies
-    //                         warn!("[Matchmaking] Game creation failed for group, will retry");
-    //                         // On peut décider de relancer la création ou de notifier les joueurs d’une erreur
-    //                         // Ici, on ne supprime pas le groupe pour pouvoir retenter
-    //                         act.broadcast(ServerWsMessage::Error {
-    //                             message: "Erreur création partie".to_string(),
-    //                         });
-    //                     }
-    //                 }
-    //                 // Après la tentative, si un autre groupe est prêt, on relance le countdown si besoin
-    //                 if let Some(first_group) = act.ready_groups.first() {
-    //                     if first_group.len() >= MIN_PLAYERS && first_group.len() < MAX_PLAYERS && act.countdown.is_none() {
-    //                         act.start_countdown(ctx);
-    //                     }
-    //                 }
-    //                 fut::ready(())
-    //             })
-    //             .wait(ctx);
-    //     }
-    // }
-
+    /// Attempt to launch the next game if a ready group has enough players.
     fn try_launch_next_game(&mut self, ctx: &mut Context<Self>) {
+        // Find a group with enough players to start a game.
         if let Some((group_idx, group)) = self.ready_groups.iter().enumerate().find(|(_, g)| g.len() >= MIN_PLAYERS) {
             let player_infos: Vec<PlayerInfo> = group.values().map(|p| p.info.clone()).collect();
             let player_addrs: Vec<SessionAddr> = group.values().map(|p| p.addr.clone()).collect();
 
-            // On retire le countdown (la partie va se lancer)
+            // Remove the countdown since the game is starting.
             self.cancel_countdown(ctx);
 
-            // Génère un nouvel ID de partie
+            // Generate a new game ID.
             let game_id = Uuid::new_v4();
 
-            // Envoie la création de la GameSession au GameSessionManager
+            // Register the pending game with the game session manager.
             self.game_session_manager.do_send(RegisterPendingGame {
                 game_id,
                 players: player_infos.clone(),
             });
 
-            // Notifie chaque joueur de leur game_id et des joueurs de la partie
+            // Notify each player of the new game.
             for addr in &player_addrs {
                 addr.do_send(ServerWsMessage::GameStarted { game_id });
             }
 
             info!("[Matchmaking] Game created with {} players, game_id={}", player_addrs.len(), game_id);
 
-            // Supprime le groupe de la liste (clean)
+            // Remove the group from the ready list.
             if group_idx < self.ready_groups.len() {
                 self.ready_groups.remove(group_idx);
             }
@@ -206,6 +150,7 @@ impl MatchmakingServer {
         }
     }
 
+    /// Add or update a player in the lobby.
     fn add_or_update_lobby_player(&mut self, player_id: WalletAddress, addr: SessionAddr, username: String) {
         let player_info = PlayerInfo {
             id: player_id.clone(),
@@ -217,6 +162,7 @@ impl MatchmakingServer {
         });
     }
 
+    /// Remove a player from all ready groups.
     fn remove_player_from_ready_groups(&mut self, player_id: &WalletAddress) -> Option<ConnectedPlayer> {
         for group in &mut self.ready_groups {
             if let Some(player) = group.remove(player_id) {
@@ -226,18 +172,19 @@ impl MatchmakingServer {
         None
     }
 
+    /// Find the ready group containing the given player, mutably.
     fn find_group_of_player_mut(&mut self, player_id: &WalletAddress) -> Option<&mut HashMap<WalletAddress, ConnectedPlayer>> {
         self.ready_groups.iter_mut().find(|g| g.contains_key(player_id))
     }
 
+    /// Refund a player (stub for business logic).
     fn refund_player(&self, player_id: &WalletAddress) {
-        // TODO: Implémenter la logique de remboursement
+        // TODO: Implement refund logic if needed.
         debug!("[Matchmaking] Refund requested for player {}", player_id);
     }
 }
 
-
-
+/// Message: player joins the lobby.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Join {
@@ -246,18 +193,21 @@ pub struct Join {
     pub username: String,
 }
 
+/// Message: player leaves the lobby or ready group.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Leave {
     pub player_id: WalletAddress,
 }
 
+/// Message: player pays to become ready.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Pay {
     pub player_id: WalletAddress,
 }
 
+/// Message: player cancels payment and returns to lobby.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct CancelPayment {
@@ -271,8 +221,9 @@ impl Actor for MatchmakingServer {
 impl Handler<Join> for MatchmakingServer {
     type Result = ();
 
+    /// Handles a player joining the lobby.
     fn handle(&mut self, msg: Join, _ctx: &mut Self::Context) -> Self::Result {
-        // Si déjà dans un groupe prêt, update l’adresse (reconnexion)
+        // If the player is already in a ready group, update their address (reconnection).
         if let Some(group) = self.find_group_of_player_mut(&msg.player_id) {
             if let Some(player) = group.get_mut(&msg.player_id) {
                 player.addr = msg.addr;
@@ -281,14 +232,14 @@ impl Handler<Join> for MatchmakingServer {
                 return;
             }
         }
-        // Si déjà dans le lobby, update l’adresse (reconnexion)
+        // If the player is already in the lobby, update their address (reconnection).
         if let Some(player) = self.lobby_players.get_mut(&msg.player_id) {
             player.addr = msg.addr;
             debug!("[Matchmaking] Player {} reconnected in lobby_players", msg.player_id);
             self.send_state();
             return;
         }
-        // Sinon, nouveau joueur : ajout dans lobby_players
+        // Otherwise, add as a new player in the lobby.
         self.add_or_update_lobby_player(msg.player_id.clone(), msg.addr, msg.username);
         debug!("[Matchmaking] Player {} joined lobby_players", msg.player_id);
         self.send_state();
@@ -298,7 +249,9 @@ impl Handler<Join> for MatchmakingServer {
 impl Handler<Leave> for MatchmakingServer {
     type Result = ();
 
+    /// Handles a player leaving the lobby or ready group.
     fn handle(&mut self, msg: Leave, _ctx: &mut Self::Context) -> Self::Result {
+        // Remove from lobby if present.
         if self.lobby_players.remove(&msg.player_id).is_some() {
             debug!("[Matchmaking] Player {} left lobby_players", msg.player_id);
             self.send_state();
@@ -306,14 +259,17 @@ impl Handler<Leave> for MatchmakingServer {
         }
 
         let countdown_active = self.countdown.is_some();
+        // If in a ready group, handle leave logic.
         if let Some(group) = self.find_group_of_player_mut(&msg.player_id) {
             if countdown_active {
+                // Players cannot leave during countdown (game is about to start).
                 debug!("[Matchmaking] Player {} tried to leave during countdown (not allowed)", msg.player_id);
-                // TODO: envoyer un message d’erreur au client
+                // TODO: send error message to client if needed.
                 return;
             }
             group.remove(&msg.player_id);
             debug!("[Matchmaking] Player {} left ready_groups (removed, not put back in lobby)", msg.player_id);
+            // Remove empty groups.
             self.ready_groups.retain(|g| !g.is_empty());
             self.refund_player(&msg.player_id);
             self.send_state();
@@ -325,21 +281,25 @@ impl Handler<Leave> for MatchmakingServer {
 impl Handler<Pay> for MatchmakingServer {
     type Result = ();
 
+    /// Handles a player paying to become ready.
     fn handle(&mut self, msg: Pay, ctx: &mut Self::Context) -> Self::Result {
+        // If already in a ready group, ignore (cannot pay twice).
         if self.find_group_of_player_mut(&msg.player_id).is_some() {
             debug!("[Matchmaking] Player {} tried to pay but is already ready", msg.player_id);
-            // TODO: envoyer un message d’erreur au client
+            // TODO: send error message to client if needed.
             return;
         }
+        // Remove from lobby; if not present, ignore.
         let player = match self.lobby_players.remove(&msg.player_id) {
             Some(p) => p,
             None => {
                 debug!("[Matchmaking] Player {} tried to pay but is not in lobby_players", msg.player_id);
-                // TODO: envoyer un message d’erreur au client
+                // TODO: send error message to client if needed.
                 return;
             }
         };
 
+        // Try to add to an existing group with space.
         let mut added_to_group = false;
         for group in &mut self.ready_groups {
             if group.len() < MAX_PLAYERS {
@@ -348,6 +308,7 @@ impl Handler<Pay> for MatchmakingServer {
                 break;
             }
         }
+        // If no group has space, create a new group.
         if !added_to_group {
             let mut new_group = HashMap::new();
             new_group.insert(msg.player_id.clone(), player.clone());
@@ -356,11 +317,13 @@ impl Handler<Pay> for MatchmakingServer {
 
         debug!("[Matchmaking] Player {} moved to ready_groups", msg.player_id);
 
+        // If the first group is full, launch the game immediately.
         if let Some(first_group) = self.ready_groups.first() {
             if first_group.len() >= MAX_PLAYERS {
                 self.cancel_countdown(ctx);
                 self.try_launch_next_game(ctx);
             } else if first_group.len() >= MIN_PLAYERS && self.countdown.is_none() {
+                // If enough players for a game, but not full, start countdown.
                 self.start_countdown(ctx);
             }
         }
@@ -371,15 +334,18 @@ impl Handler<Pay> for MatchmakingServer {
 impl Handler<CancelPayment> for MatchmakingServer {
     type Result = ();
 
+    /// Handles a player cancelling payment and returning to the lobby.
     fn handle(&mut self, msg: CancelPayment, _ctx: &mut Self::Context) -> Self::Result {
         let countdown_active = self.countdown.is_some();
         let group = self.find_group_of_player_mut(&msg.player_id);
         if group.is_none() {
+            // Player is not in any ready group; nothing to do.
             return;
         }
         let group = group.unwrap();
 
         if countdown_active {
+            // Cannot cancel payment during countdown (game is about to start).
             if let Some(player) = group.get(&msg.player_id) {
                 player.addr.do_send(ServerWsMessage::Error {
                     message: "Cannot cancel payment: game is about to start.".to_string(),
@@ -388,8 +354,10 @@ impl Handler<CancelPayment> for MatchmakingServer {
             return;
         }
 
+        // Remove from ready group and put back in lobby.
         if let Some(player) = group.remove(&msg.player_id) {
             self.add_or_update_lobby_player(msg.player_id.clone(), player.addr, player.info.username);
+            // Remove empty groups.
             self.ready_groups.retain(|g| !g.is_empty());
             self.refund_player(&msg.player_id);
             self.send_state();

@@ -1,3 +1,8 @@
+//! Messages and types for game session actors and WebSocket protocol.
+//!
+//! Defines all messages exchanged between the game session actors, as well as the protocol
+//! for client-server communication during a game.
+
 use actix::prelude::*;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
@@ -8,7 +13,7 @@ use crate::game::state::GameState;
 use crate::server::matchmaking::types::{WalletAddress, PlayerInfo};
 use crate::server::game_session::GameSession;
 
-/// Message pour enregistrer une partie en attente (appelé par le matchmaking)
+/// Message to register a pending game (sent by matchmaking when a group is ready).
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct RegisterPendingGame {
@@ -16,7 +21,8 @@ pub struct RegisterPendingGame {
     pub players: Vec<PlayerInfo>,
 }
 
-/// Message pour demander la création (ou récupération) d'une GameSession à la connexion WebSocket
+/// Message to request creation or retrieval of a GameSession for a given game_id.
+/// Used when a client connects to a game WebSocket.
 #[derive(Message)]
 #[rtype(result = "Result<Addr<GameSession>, String>")]
 pub struct EnsureGameSession {
@@ -24,6 +30,7 @@ pub struct EnsureGameSession {
     pub mode: Option<GameMode>,
 }
 
+/// Message sent by a player to perform an action (move or shoot).
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ProcessClientMessage {
@@ -32,20 +39,26 @@ pub struct ProcessClientMessage {
     pub addr: Addr<GameSessionActor>,
 }
 
+/// Player action sent by the client (move or shoot).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum PlayerAction {
     Move(Direction),
     Shoot { x: usize, y: usize },
 }
 
+/// WebSocket messages sent from client to server during a game session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "action", content = "data")]
 pub enum GameClientWsMessage {
+    /// Move in a direction.
     Move(Direction),
+    /// Shoot at a tile.
     Shoot { x: usize, y: usize },
+    /// Vote for a game mode.
     GameModeVote { mode: GameMode },
 }
 
+/// Message sent when a player votes for a game mode.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct GameModeVote {
@@ -53,7 +66,7 @@ pub struct GameModeVote {
     pub mode: GameMode,
 }
 
-/// Nouveau message envoyé à chaque joueur à la connexion ou lors du refresh de la phase de pré-game
+/// Data sent to all players at the start of the game or when the pre-game phase is refreshed.
 #[derive(Message, Clone, Serialize, Deserialize, Debug)]
 #[rtype(result = "()")]
 pub struct GamePreGameData {
@@ -64,7 +77,7 @@ pub struct GamePreGameData {
     pub grid_col: usize,
 }
 
-/// Notification à tous les joueurs lorsqu'un joueur a voté
+/// Notification sent to all players when a player votes for a mode.
 #[derive(Message, Clone, Serialize, Deserialize, Debug)]
 #[rtype(result = "()")]
 pub struct GameModeVoteUpdate {
@@ -72,7 +85,7 @@ pub struct GameModeVoteUpdate {
     pub mode: GameMode,
 }
 
-/// Notification du mode choisi et du joueur tiré au sort
+/// Notification of the chosen mode and the player who was selected to decide.
 #[derive(Message, Clone, Serialize, Deserialize, Debug)]
 #[rtype(result = "()")]
 pub struct GameModeChosen {
@@ -80,6 +93,7 @@ pub struct GameModeChosen {
     pub chosen_by: WalletAddress,
 }
 
+/// Game state update sent to all players after each turn.
 #[derive(Message, Clone, Serialize, Deserialize, Debug)]
 #[rtype(result = "()")]
 pub struct GameStateUpdate {
@@ -87,15 +101,23 @@ pub struct GameStateUpdate {
     pub turn_duration: u64,
 }
 
+/// WebSocket messages sent from server to client during a game session.
 #[derive(Message, Serialize, Deserialize, Clone, Debug)]
 #[rtype(result = "()")]
 #[serde(tag = "action", content = "data")]
 pub enum GameWsMessage {
+    /// Initial game state and mode.
     GameInit { state: GameState, mode: GameMode },
+    /// Game state update after a turn.
     GameStateUpdate { state: GameState, turn_duration: u64 },
+    /// Game ended, with winner.
     GameEnded { winner: String },
+    /// Error message.
     Error { message: String },
+    /// Pre-game data (mode choice, players, deadline).
     GamePreGameData(GamePreGameData),
+    /// Notification of a mode vote.
     GameModeVoteUpdate(GameModeVoteUpdate),
+    /// Notification of the chosen mode.
     GameModeChosen(GameModeChosen),
 }

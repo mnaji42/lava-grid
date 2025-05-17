@@ -20,6 +20,7 @@ This document describes the conventions for code comments and documentation in t
 
 - **Language:** All comments and documentation must be in English.
 - **Clarity:** Write for someone who does not know the codebase. Be explicit about business logic and technical details.
+- **Minimalism:** Only comment where necessary—avoid redundant or excessive comments.
 - **Audience:** Comments should help:
   - Yourself (future you!),
   - Other developers (open source),
@@ -39,6 +40,7 @@ _These conventions apply to all Rust code in the backend._
 - Use triple slashes `///` for documenting public items (modules, structs, enums, functions, traits, constants, etc.).
 - These comments are used by `cargo doc` to generate documentation.
 - Always start doc comments with a summary line, followed by a blank line, then details/examples if needed.
+- **Do not over-comment:** Only document what is not obvious from the code.
 
 **Example:**
 
@@ -60,6 +62,7 @@ pub struct Player {
 
 - Use `//` for short explanations inside function bodies or for clarifying complex logic.
 - Place them above the line they explain, or at the end if very short.
+- **Avoid commenting obvious code.**
 
 **Example:**
 
@@ -80,7 +83,7 @@ if let Some(player) = group.remove(player_id) {
 
 - **Modules:** At the top of each module, add a doc comment explaining its purpose and responsibilities.
 - **Structs, Enums, Traits:** Describe what the type represents and its role in the business logic.
-- **Functions & Methods:** Always document public functions/methods. Use summary, arguments, returns, errors, and examples.
+- **Functions & Methods:** Always document public functions/methods. Use summary, arguments, returns, errors, and examples if needed.
 - **Constants:** Explain what the constant is for, and why the value was chosen if not obvious.
 
 ---
@@ -120,6 +123,7 @@ _These conventions apply to all JS/TS code in the frontend (Next.js, React, etc.
 
 - Use JSDoc-style comments for documenting functions, classes, components, and modules.
 - Start with a summary line, then describe parameters, return values, and examples if needed.
+- **Do not over-comment:** Only document what is not obvious from the code.
 
 **Example:**
 
@@ -142,6 +146,7 @@ function PlayerAvatar({ username, avatarUrl }: Props) {
 #### 1.2. Inline Comments (`//`)
 
 - Use `//` for short explanations inside functions or to clarify complex logic.
+- **Avoid commenting obvious code.**
 
 **Example:**
 
@@ -190,6 +195,7 @@ const activePlayers = players.filter((p) => p.isActive)
 - **Update comments:** Always update documentation when changing code.
 - **Use examples:** For complex functions, add usage examples in doc comments.
 - **Document edge cases and errors:** Especially for public APIs.
+- **Minimalism:** When in doubt, prefer fewer comments, but ensure all business logic and non-obvious decisions are explained.
 
 ---
 

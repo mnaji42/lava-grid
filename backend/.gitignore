@@ -8,8 +8,5 @@ Cargo.lock
 # VSCode settings
 .vscode
 
-project_state.txt
-update_backend_state.sh
-backend-state.txt
 .DS_Store
-prompt-ia/
+ia-tools/

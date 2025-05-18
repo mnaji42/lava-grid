@@ -1,7 +1,7 @@
 /// Handles turn start and resolution logic for GameSession.
 /// Encapsulates timer management, action collection, and state updates.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use actix::prelude::*;
 
 use crate::server::game_session::server::GameSession;
@@ -15,6 +15,7 @@ pub fn start_new_turn(this: &mut GameSession, ctx: &mut Context<GameSession>) {
     }
     this.turn_in_progress = true;
     this.pending_actions.clear();
+    this.turn_start_time = Some(Instant::now());
 
     // Start the turn timer.
     let handle = ctx.run_later(Duration::from_secs(TURN_DURATION), |act, ctx| {
@@ -24,8 +25,9 @@ pub fn start_new_turn(this: &mut GameSession, ctx: &mut Context<GameSession>) {
 
     // Broadcast the new turn state.
     if let Some(ref state) = this.game_state {
+        let turn_duration = this.get_turn_remaining_secs();
         for addr in this.players.values().chain(this.spectators.values()) {
-            addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
+            addr.do_send(GameStateUpdate { state: state.clone(), turn_duration });
         }
     }
 }
@@ -67,7 +69,7 @@ pub fn resolve_turn(this: &mut GameSession, ctx: &mut Context<GameSession>) {
     } else {
         // Game is over, notify all clients.
         for addr in this.players.values().chain(this.spectators.values()) {
-            addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
+            addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: 0 });
             // TODO: send a GameEnded message if needed
         }
     }

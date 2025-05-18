@@ -114,6 +114,7 @@ pub struct GameSession {
     pub pending_actions: HashMap<WalletAddress, PlayerAction>,
     pub turn_timer: Option<SpawnHandle>,
     pub turn_in_progress: bool,
+    pub turn_start_time: Option<Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,6 +137,7 @@ impl GameSession {
             pending_actions: HashMap::new(),
             turn_timer: None,
             turn_in_progress: false,
+            turn_start_time: None,
         }
     }
     
@@ -174,6 +176,7 @@ impl GameSession {
             ctx.cancel_future(handle);
         }
         self.turn_in_progress = false;
+        self.turn_start_time = None;
         start_new_turn(self, ctx);
     }
 
@@ -193,15 +196,35 @@ impl GameSession {
     /// Broadcast the current game state to all players and spectators.
     pub fn send_state(&self) {
         if let Some(ref state) = self.game_state {
+            let turn_duration = self.get_turn_remaining_secs();
             debug!(
-                "[GameSession] Broadcast GameState: game_id={} turn={} players={:?}",
+                "[GameSession] Broadcast GameState: game_id={} turn={} players={:?} turn_remaining={}",
                 self.game_id,
                 state.turn,
-                state.players.iter().map(|p| &p.id).collect::<Vec<_>>()
+                state.players.iter().map(|p| &p.id).collect::<Vec<_>>(),
+                turn_duration
             );
             for addr in self.players.values().chain(self.spectators.values()) {
-                addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
+                addr.do_send(GameStateUpdate { state: state.clone(), turn_duration });
             }
+        }
+    }
+
+    /// Calculate the actual remaining time for the current turn (in seconds).
+    pub fn get_turn_remaining_secs(&self) -> u64 {
+        if self.turn_in_progress {
+            if let Some(start) = self.turn_start_time {
+                let elapsed = Instant::now().saturating_duration_since(start).as_secs();
+                if elapsed >= TURN_DURATION {
+                    0
+                } else {
+                    TURN_DURATION - elapsed
+                }
+            } else {
+                TURN_DURATION
+            }
+        } else {
+            TURN_DURATION
         }
     }
 }
@@ -433,7 +456,9 @@ impl Handler<RegisterSession> for GameSession {
             );
         } else {
             if let Some(ref state) = self.game_state {
-                msg.addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
+                // Use the real remaining time, not TURN_DURATION
+                let turn_duration = self.get_turn_remaining_secs();
+                msg.addr.do_send(GameStateUpdate { state: state.clone(), turn_duration });
             }
         }
     }

@@ -333,11 +333,12 @@ impl Handler<GameStateUpdate> for GameSessionActor {
 
     fn handle(&mut self, msg: GameStateUpdate, ctx: &mut Self::Context) -> Self::Result {
         debug!(
-            "[WS] Sending GameStateUpdate to wallet={} (is_player={}): turn={} players={:?}",
+            "[WS] Sending GameStateUpdate to wallet={} (is_player={}): turn={} players={:?} turn_duration={}",
             self.player_id,
             self.is_player,
             msg.state.turn,
-            msg.state.players.iter().map(|p| (p.id.clone(), p.pos, p.is_alive)).collect::<Vec<_>>()
+            msg.state.players.iter().map(|p| (p.id.clone(), p.pos, p.is_alive)).collect::<Vec<_>>(),
+            msg.turn_duration
         );
         let ws_msg = GameWsMessage::GameStateUpdate { state: msg.state, turn_duration: msg.turn_duration };
         match serde_json::to_string(&ws_msg) {

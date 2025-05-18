@@ -17,8 +17,9 @@ use crate::server::session_utils::{is_game_session_addr_valid, is_game_session_s
 use crate::game::types::GameMode;
 use crate::server::game_session::messages::{
     GameStateUpdate, ProcessClientMessage, PlayerAction, RegisterPendingGame, EnsureGameSession,
-    GameModeVote, SessionKicked
+    GameModeVote, SessionKicked, SendWsTextMessage
 };
+use crate::server::ws_error::ws_error_message;
 use crate::server::game_session::mode_choice::ModeChoice;
 use crate::server::game_session::turn_resolution::{start_new_turn, resolve_turn};
 
@@ -283,34 +284,78 @@ impl Handler<ProcessClientMessage> for GameSession {
         // Verify that the session address matches the one registered for this wallet
         if !is_game_session_addr_valid(&self.players, &msg.player_id, &msg.addr) {
             warn!("[GameSession] Action ignored: session addr mismatch for wallet={}", msg.player_id);
+            msg.addr.do_send(SendWsTextMessage {
+                text: ws_error_message(
+                    "SESSION_ADDR_MISMATCH",
+                    "Session address mismatch: your session is not recognized for this game.",
+                    Some(&msg.player_id),
+                ),
+            });
             return;
         }
 
         // Ignore actions if the game hasn't started.
         if self.game_state.is_none() {
+            msg.addr.do_send(SendWsTextMessage {
+                text: ws_error_message(
+                    "GAME_NOT_STARTED",
+                    "Game has not started yet. You cannot act now.",
+                    Some(&msg.player_id),
+                ),
+            });
             return;
         }
         // Ignore actions if the turn is not in progress.
         if !self.turn_in_progress {
             warn!("[GameSession] Action received while turn is not in progress");
+            msg.addr.do_send(SendWsTextMessage {
+                text: ws_error_message(
+                    "TURN_NOT_IN_PROGRESS",
+                    "Turn is not in progress. Please wait for your turn.",
+                    Some(&msg.player_id),
+                ),
+            });
             return;
         }
 
         // Find the player's index.
         let player_index = match self.player_infos.iter().position(|p| p.id == msg.player_id) {
             Some(idx) => idx,
-            None => return, // Unknown player
+            None => {
+                msg.addr.do_send(SendWsTextMessage {
+                    text: ws_error_message(
+                        "UNKNOWN_PLAYER",
+                        "Unknown player: you are not part of this game.",
+                        Some(&msg.player_id),
+                    ),
+                });
+                return;
+            }
         };
 
         // Only allow actions from living players.
         if !self.game_state.as_ref().unwrap().players.get(player_index).map(|p| p.is_alive).unwrap_or(false) {
             warn!("[GameSession] Dead or unknown player tried to act: {}", msg.player_id);
+            msg.addr.do_send(SendWsTextMessage {
+                text: ws_error_message(
+                    "PLAYER_ELIMINATED",
+                    "You are eliminated and cannot act anymore.",
+                    Some(&msg.player_id),
+                ),
+            });
             return;
         }
 
         // Prevent multiple actions per turn.
         if self.pending_actions.contains_key(&msg.player_id) {
             warn!("[GameSession] Player {} spamming, action already received this turn", msg.player_id);
+            msg.addr.do_send(SendWsTextMessage {
+                text: ws_error_message(
+                    "ALREADY_ACTED",
+                    "You have already acted this turn. Please wait for the next turn.",
+                    Some(&msg.player_id),
+                ),
+            });
             return;
         }
 
@@ -352,19 +397,31 @@ impl Handler<RegisterSession> for GameSession {
 
     fn handle(&mut self, msg: RegisterSession, _: &mut Context<Self>) -> Self::Result {
         if msg.is_player {
+            // Only kick if the address is different (unicity)
             if let Some(old_addr) = self.players.get(&msg.wallet) {
-                old_addr.do_send(SessionKicked {
-                    reason: "Another session has connected with your wallet in this game.".to_string(),
-                });
+                if !is_game_session_addr_valid(&self.players, &msg.wallet, &msg.addr) {
+                    old_addr.do_send(SessionKicked {
+                        reason: "Another session has connected with your wallet in this game.".to_string(),
+                    });
+                    self.players.insert(msg.wallet.clone(), msg.addr.clone());
+                }
+                // else: already registered, nothing to do
+            } else {
+                self.players.insert(msg.wallet.clone(), msg.addr.clone());
             }
-            self.players.insert(msg.wallet.clone(), msg.addr.clone());
         } else {
+            // Same logic for spectators
             if let Some(old_addr) = self.spectators.get(&msg.wallet) {
-                old_addr.do_send(SessionKicked {
-                    reason: "Another session has connected with your wallet in this game (spectator).".to_string(),
-                });
+                if !is_game_session_spectator_addr_valid(&self.spectators, &msg.wallet, &msg.addr) {
+                    old_addr.do_send(SessionKicked {
+                        reason: "Another session has connected with your wallet in this game (spectator).".to_string(),
+                    });
+                    self.spectators.insert(msg.wallet.clone(), msg.addr.clone());
+                }
+                // else: already registered, nothing to do
+            } else {
+                self.spectators.insert(msg.wallet.clone(), msg.addr.clone());
             }
-            self.spectators.insert(msg.wallet.clone(), msg.addr.clone());
         }
 
         if self.game_state.is_none() {

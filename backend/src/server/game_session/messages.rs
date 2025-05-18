@@ -118,6 +118,14 @@ pub struct UnregisterSession {
     pub addr: Addr<GameSessionActor>,
 }
 
+/// Utility message to send arbitrary text over WebSocket.
+/// Used for custom errors or notifications.
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct SendWsTextMessage {
+    pub text: String,
+}
+
 /// WebSocket messages sent from server to client during a game session.
 #[derive(Message, Serialize, Deserialize, Clone, Debug)]
 #[rtype(result = "()")]
@@ -139,4 +147,6 @@ pub enum GameWsMessage {
     GameModeVoteUpdate(GameModeVoteUpdate),
     /// Notification of the chosen mode.
     GameModeChosen(GameModeChosen),
+    /// Custom text message.
+    CustomMessage { text: String },
 }

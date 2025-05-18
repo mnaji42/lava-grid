@@ -2,6 +2,7 @@
 ///
 /// Use these helpers to ensure all error messages are consistent, explicit, and include a code and context.
 use actix_web::{HttpResponse, http::StatusCode};
+use log::{warn, error};
 
 /// Formats a WebSocket error message as a JSON string.
 ///
@@ -11,6 +12,7 @@ use actix_web::{HttpResponse, http::StatusCode};
 /// - `context`: Optional context (e.g. player_id, game_id).
 pub fn ws_error_message(code: &str, message: &str, context: Option<&str>) -> String {
     let context_str = context.unwrap_or("");
+    warn!("[WS_ERROR] code={} message='{}' context={}", code, message, context_str);
     format!(
         r#"{{"action":"Error","data":{{"code":"{}","message":"{}","context":"{}"}}}}"#,
         code, message, context_str
@@ -40,6 +42,7 @@ pub fn http_error_response(
     status: StatusCode,
 ) -> HttpResponse {
     let context_str = context.unwrap_or("");
+    error!("[HTTP_ERROR] code={} message='{}' context={}", code, message, context_str);
     let body = format!(
         r#"{{"error":{{"code":"{}","message":"{}","context":"{}"}}}}"#,
         code, message, context_str

@@ -3,3 +3,4 @@
 /// Re-exports submodules for game and matchmaking configuration.
 pub mod matchmaking;
 pub mod game;
+pub mod anti_spam;

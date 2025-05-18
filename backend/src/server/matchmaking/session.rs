@@ -13,12 +13,14 @@ use crate::server::matchmaking::server::{MatchmakingServer, Join, Leave, Pay, Ca
 use crate::server::matchmaking::messages::{ServerWsMessage, ClientWsMessage, SessionKicked};
 use crate::server::matchmaking::types::WalletAddress;
 use crate::server::ws_error::{ws_error_message, http_error_response, ws_session_kicked_message};
+use crate::server::anti_spam::AntiSpamState;
 
 /// Represents a WebSocket session for a player in the matchmaking lobby.
 pub struct MatchmakingSession {
     pub player_id: WalletAddress,
     pub username: String,
     pub matchmaking_addr: Addr<MatchmakingServer>,
+    pub anti_spam: AntiSpamState,
 }
 
 impl Actor for MatchmakingSession {
@@ -53,6 +55,22 @@ impl Actor for MatchmakingSession {
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSession {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
+        // Anti-spam: record request, close if banned
+        if self.anti_spam.record_request(&self.player_id) {
+            warn!("[AntiSpam] Banned wallet={} - closing connection", self.player_id);
+            ctx.text(ws_error_message(
+                "BANNED",
+                "You have been banned for spamming. Please try again later.",
+                Some(&self.player_id),
+            ));
+            ctx.close(Some(ws::CloseReason {
+                code: ws::CloseCode::Policy,
+                description: Some("Banned for spam".into()),
+            }));
+            ctx.stop();
+            return;
+        }
+
         match msg {
             Ok(ws::Message::Text(ref text)) => {
                 info!(
@@ -67,11 +85,27 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSessio
                             "[Matchmaking WS] Invalid command from wallet={}: {} | Text: {}",
                             self.player_id, e, text
                         );
-                        ctx.text(ws_error_message(
-                            "INVALID_ACTION",
-                            "Invalid command",
-                            Some(&self.player_id),
-                        ));
+                        // Anti-spam: suppress duplicate errors
+                        if self.anti_spam.should_send_error("INVALID_ACTION", &self.player_id) {
+                            if self.anti_spam.record_response(&self.player_id) {
+                                ctx.text(ws_error_message(
+                                    "BANNED",
+                                    "You have been banned for spamming. Please try again later.",
+                                    Some(&self.player_id),
+                                ));
+                                ctx.close(Some(ws::CloseReason {
+                                    code: ws::CloseCode::Policy,
+                                    description: Some("Banned for spam".into()),
+                                }));
+                                ctx.stop();
+                                return;
+                            }
+                            ctx.text(ws_error_message(
+                                "INVALID_ACTION",
+                                "Invalid command",
+                                Some(&self.player_id),
+                            ));
+                        }
                         return;
                     }
                 };
@@ -86,12 +120,14 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSessio
                             player_id: self.player_id.clone(),
                             addr: ctx.address(),
                         });
+                        self.anti_spam.reset_on_valid_action();
                     }
                     ClientWsMessage::CancelPayment => {
                         self.matchmaking_addr.do_send(CancelPayment {
                             player_id: self.player_id.clone(),
                             addr: ctx.address(),
                         });
+                        self.anti_spam.reset_on_valid_action();
                     }
                     ClientWsMessage::Ping => {
                         debug!("[Matchmaking WS] Received Ping from wallet={}", self.player_id);
@@ -115,11 +151,26 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSessio
                     "[Matchmaking WS] WebSocket error: wallet={} err={:?}",
                     self.player_id, e
                 );
-                ctx.text(ws_error_message(
-                    "WS_PROTOCOL_ERROR",
-                    "WebSocket protocol error",
-                    Some(&self.player_id),
-                ));
+                if self.anti_spam.should_send_error("WS_PROTOCOL_ERROR", &self.player_id) {
+                    if self.anti_spam.record_response(&self.player_id) {
+                        ctx.text(ws_error_message(
+                            "BANNED",
+                            "You have been banned for spamming. Please try again later.",
+                            Some(&self.player_id),
+                        ));
+                        ctx.close(Some(ws::CloseReason {
+                            code: ws::CloseCode::Policy,
+                            description: Some("Banned for spam".into()),
+                        }));
+                        ctx.stop();
+                        return;
+                    }
+                    ctx.text(ws_error_message(
+                        "WS_PROTOCOL_ERROR",
+                        "WebSocket protocol error",
+                        Some(&self.player_id),
+                    ));
+                }
                 ctx.stop();
             }
         }
@@ -143,17 +194,47 @@ impl Handler<ServerWsMessage> for MatchmakingSession {
     /// Handles messages sent from the server to this session.
     fn handle(&mut self, msg: ServerWsMessage, ctx: &mut Self::Context) {
         match serde_json::to_string(&msg) {
-            Ok(text) => ctx.text(text),
+            Ok(text) => {
+                if self.anti_spam.record_response(&self.player_id) {
+                    ctx.text(ws_error_message(
+                        "BANNED",
+                        "You have been banned for spamming. Please try again later.",
+                        Some(&self.player_id),
+                    ));
+                    ctx.close(Some(ws::CloseReason {
+                        code: ws::CloseCode::Policy,
+                        description: Some("Banned for spam".into()),
+                    }));
+                    ctx.stop();
+                    return;
+                }
+                ctx.text(text)
+            },
             Err(e) => {
                 error!(
                     "[Matchmaking WS] Failed to serialize ServerWsMessage for wallet={}: {}",
                     self.player_id, e
                 );
-                ctx.text(ws_error_message(
-                    "SERIALIZATION_ERROR",
-                    "Internal server error",
-                    Some(&self.player_id),
-                ));
+                if self.anti_spam.should_send_error("SERIALIZATION_ERROR", &self.player_id) {
+                    if self.anti_spam.record_response(&self.player_id) {
+                        ctx.text(ws_error_message(
+                            "BANNED",
+                            "You have been banned for spamming. Please try again later.",
+                            Some(&self.player_id),
+                        ));
+                        ctx.close(Some(ws::CloseReason {
+                            code: ws::CloseCode::Policy,
+                            description: Some("Banned for spam".into()),
+                        }));
+                        ctx.stop();
+                        return;
+                    }
+                    ctx.text(ws_error_message(
+                        "SERIALIZATION_ERROR",
+                        "Internal server error",
+                        Some(&self.player_id),
+                    ));
+                }
                 ctx.close(Some(ws::CloseReason {
                     code: ws::CloseCode::Error,
                     description: Some("Internal server error".into()),
@@ -217,6 +298,7 @@ pub async fn ws_matchmaking(
             player_id,
             username,
             matchmaking_addr: data.matchmaking_addr.clone(),
+            anti_spam: AntiSpamState::new(),
         },
         &req,
         stream,

@@ -14,10 +14,11 @@ use crate::server::game_session::server::{GameSession, UnregisterSession, Regist
 use crate::server::game_session::messages::{
     GamePreGameData, GameModeChosen, ProcessClientMessage, GameStateUpdate, PlayerAction,
     GameWsMessage, EnsureGameSession, GameModeVoteUpdate, GameClientWsMessage, GameModeVote,
-    SessionKicked
+    SessionKicked, SendWsTextMessage
 };
 use crate::server::matchmaking::types::WalletAddress;
 use crate::server::ws_error::{ws_error_message, http_error_response, ws_session_kicked_message};
+use crate::server::anti_spam::AntiSpamState;
 
 /// Represents a WebSocket session for a player or spectator in a game.
 pub struct GameSessionActor {
@@ -25,6 +26,7 @@ pub struct GameSessionActor {
     pub player_id: WalletAddress,
     pub is_player: bool,
     pub session_addr: Addr<GameSession>,
+    pub anti_spam: AntiSpamState,
 }
 
 impl Actor for GameSessionActor {
@@ -52,35 +54,81 @@ impl Actor for GameSessionActor {
 impl GameSessionActor {
     /// Checks if the session is a player (not a spectator).
     /// If not, sends an error and returns false.
-    fn ensure_is_player(&self, ctx: &mut ws::WebsocketContext<Self>) -> bool {
+    fn ensure_is_player(&mut self, ctx: &mut ws::WebsocketContext<Self>) -> bool {
         if !self.is_player {
             warn!(
                 "[WS] Command attempt by spectator: wallet={}",
                 self.player_id
             );
-            ctx.text(ws_error_message(
-                "SPECTATOR_COMMAND",
-                "Spectators cannot send commands",
-                Some(&self.player_id),
-            ));
+            if self.anti_spam.should_send_error("SPECTATOR_COMMAND", &self.player_id) {
+                if self.anti_spam.record_response(&self.player_id) {
+                    ctx.text(ws_error_message(
+                        "BANNED",
+                        "You have been banned for spamming. Please try again later.",
+                        Some(&self.player_id),
+                    ));
+                    ctx.close(Some(ws::CloseReason {
+                        code: ws::CloseCode::Policy,
+                        description: Some("Banned for spam".into()),
+                    }));
+                    ctx.stop();
+                    return false;
+                }
+                ctx.text(ws_error_message(
+                    "SPECTATOR_COMMAND",
+                    "Spectators cannot send commands",
+                    Some(&self.player_id),
+                ));
+            }
             return false;
         }
         true
     }
 
     /// Sends an explicit error to the client and logs the reason.
-    fn send_explicit_error(&self, ctx: &mut ws::WebsocketContext<Self>, code: &str, message: &str) {
+    fn send_explicit_error(&mut self, ctx: &mut ws::WebsocketContext<Self>, code: &str, message: &str) {
         warn!("[WS] Error for wallet={}: {}", self.player_id, message);
-        ctx.text(ws_error_message(
-            code,
-            message,
-            Some(&self.player_id),
-        ));
+        if self.anti_spam.should_send_error(code, &self.player_id) {
+            if self.anti_spam.record_response(&self.player_id) {
+                ctx.text(ws_error_message(
+                    "BANNED",
+                    "You have been banned for spamming. Please try again later.",
+                    Some(&self.player_id),
+                ));
+                ctx.close(Some(ws::CloseReason {
+                    code: ws::CloseCode::Policy,
+                    description: Some("Banned for spam".into()),
+                }));
+                ctx.stop();
+                return;
+            }
+            ctx.text(ws_error_message(
+                code,
+                message,
+                Some(&self.player_id),
+            ));
+        }
     }
 }
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
+        // Anti-spam: record request, close if banned
+        if self.anti_spam.record_request(&self.player_id) {
+            warn!("[AntiSpam] Banned wallet={} - closing connection", self.player_id);
+            ctx.text(ws_error_message(
+                "BANNED",
+                "You have been banned for spamming. Please try again later.",
+                Some(&self.player_id),
+            ));
+            ctx.close(Some(ws::CloseReason {
+                code: ws::CloseCode::Policy,
+                description: Some("Banned for spam".into()),
+            }));
+            ctx.stop();
+            return;
+        }
+
         match msg {
             Ok(ws::Message::Text(ref text)) => {
                 info!(
@@ -119,6 +167,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                             player_id: self.player_id.clone(),
                             addr: ctx.address(),
                         });
+                        self.anti_spam.reset_on_valid_action();
                     }
                     GameClientWsMessage::Shoot { x, y } => {
                         self.session_addr.do_send(ProcessClientMessage {
@@ -126,6 +175,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                             player_id: self.player_id.clone(),
                             addr: ctx.address(),
                         });
+                        self.anti_spam.reset_on_valid_action();
                     }
                     GameClientWsMessage::GameModeVote { mode } => {
                         // Forward the mode vote to the session.
@@ -133,6 +183,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                             player_id: self.player_id.clone(),
                             mode,
                         });
+                        self.anti_spam.reset_on_valid_action();
                     }
                     // Add other variants here if needed.
                 }
@@ -164,7 +215,22 @@ impl Handler<GamePreGameData> for GameSessionActor {
     fn handle(&mut self, msg: GamePreGameData, ctx: &mut Self::Context) -> Self::Result {
         let ws_msg = GameWsMessage::GamePreGameData(msg);
         match serde_json::to_string(&ws_msg) {
-            Ok(text) => ctx.text(text),
+            Ok(text) => {
+                if self.anti_spam.record_response(&self.player_id) {
+                    ctx.text(ws_error_message(
+                        "BANNED",
+                        "You have been banned for spamming. Please try again later.",
+                        Some(&self.player_id),
+                    ));
+                    ctx.close(Some(ws::CloseReason {
+                        code: ws::CloseCode::Policy,
+                        description: Some("Banned for spam".into()),
+                    }));
+                    ctx.stop();
+                    return;
+                }
+                ctx.text(text)
+            },
             Err(e) => self.send_explicit_error(
                 ctx,
                 "SERIALIZATION_ERROR",
@@ -180,7 +246,22 @@ impl Handler<GameModeChosen> for GameSessionActor {
     fn handle(&mut self, msg: GameModeChosen, ctx: &mut Self::Context) -> Self::Result {
         let ws_msg = GameWsMessage::GameModeChosen(msg);
         match serde_json::to_string(&ws_msg) {
-            Ok(text) => ctx.text(text),
+            Ok(text) => {
+                if self.anti_spam.record_response(&self.player_id) {
+                    ctx.text(ws_error_message(
+                        "BANNED",
+                        "You have been banned for spamming. Please try again later.",
+                        Some(&self.player_id),
+                    ));
+                    ctx.close(Some(ws::CloseReason {
+                        code: ws::CloseCode::Policy,
+                        description: Some("Banned for spam".into()),
+                    }));
+                    ctx.stop();
+                    return;
+                }
+                ctx.text(text)
+            },
             Err(e) => self.send_explicit_error(
                 ctx,
                 "SERIALIZATION_ERROR",
@@ -196,7 +277,22 @@ impl Handler<GameModeVoteUpdate> for GameSessionActor {
     fn handle(&mut self, msg: GameModeVoteUpdate, ctx: &mut Self::Context) -> Self::Result {
         let ws_msg = GameWsMessage::GameModeVoteUpdate(msg);
         match serde_json::to_string(&ws_msg) {
-            Ok(text) => ctx.text(text),
+            Ok(text) => {
+                if self.anti_spam.record_response(&self.player_id) {
+                    ctx.text(ws_error_message(
+                        "BANNED",
+                        "You have been banned for spamming. Please try again later.",
+                        Some(&self.player_id),
+                    ));
+                    ctx.close(Some(ws::CloseReason {
+                        code: ws::CloseCode::Policy,
+                        description: Some("Banned for spam".into()),
+                    }));
+                    ctx.stop();
+                    return;
+                }
+                ctx.text(text)
+            },
             Err(e) => self.send_explicit_error(
                 ctx,
                 "SERIALIZATION_ERROR",
@@ -219,7 +315,25 @@ impl Handler<GameStateUpdate> for GameSessionActor {
         );
         let ws_msg = GameWsMessage::GameStateUpdate { state: msg.state, turn_duration: msg.turn_duration };
         match serde_json::to_string(&ws_msg) {
-            Ok(text) => ctx.text(text),
+            Ok(text) => {
+                // Reset error suppression at each turn (new state)
+                self.anti_spam.reset_error_suppression();
+                
+                if self.anti_spam.record_response(&self.player_id) {
+                    ctx.text(ws_error_message(
+                        "BANNED",
+                        "You have been banned for spamming. Please try again later.",
+                        Some(&self.player_id),
+                    ));
+                    ctx.close(Some(ws::CloseReason {
+                        code: ws::CloseCode::Policy,
+                        description: Some("Banned for spam".into()),
+                    }));
+                    ctx.stop();
+                    return;
+                }
+                ctx.text(text)
+            },
             Err(e) => {
                 error!(
                     "[WS] Serialization error GameStateUpdate for wallet={}: {}",
@@ -242,6 +356,27 @@ impl Handler<SessionKicked> for GameSessionActor {
         info!("[WS] Session kicked: wallet={}", self.player_id);
         ctx.text(ws_session_kicked_message(Some(&self.player_id)));
         ctx.stop();
+    }
+}
+
+impl Handler<SendWsTextMessage> for GameSessionActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: SendWsTextMessage, ctx: &mut Self::Context) -> Self::Result {
+        if self.anti_spam.record_response(&self.player_id) {
+            ctx.text(ws_error_message(
+                "BANNED",
+                "You have been banned for spamming. Please try again later.",
+                Some(&self.player_id),
+            ));
+            ctx.close(Some(ws::CloseReason {
+                code: ws::CloseCode::Policy,
+                description: Some("Banned for spam".into()),
+            }));
+            ctx.stop();
+            return;
+        }
+        ctx.text(msg.text);
     }
 }
 
@@ -332,6 +467,7 @@ pub async fn ws_game(
             player_id: player_id.clone(),
             is_player: true, // TODO: handle spectators if needed
             session_addr,
+            anti_spam: AntiSpamState::new(),
         },
         &req,
         stream,

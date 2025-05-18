@@ -34,6 +34,6 @@ pub fn apply_player_rules(game_state: &mut GameState, player_index: usize) {
 
 /// Apply global rules at the end of the turn (e.g., break a tile, resolve cannonball hits).
 pub fn apply_rules(game_state: &mut GameState) {
-    break_tile(game_state);
+    break_tile(game_state); // TODO remettre (juste debugging)
     resolve_cannonball_hits(game_state);
 }

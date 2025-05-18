@@ -13,6 +13,7 @@ use crate::game::state::GameState;
 use crate::server::matchmaking::types::{PlayerInfo, WalletAddress};
 use crate::server::game_session::session::GameSessionActor;
 use crate::config::game::{TURN_DURATION, GRID_ROW, GRID_COL};
+use crate::server::session_utils::{is_game_session_addr_valid, is_game_session_spectator_addr_valid};
 use crate::game::types::GameMode;
 use crate::server::game_session::messages::{
     GameStateUpdate, ProcessClientMessage, PlayerAction, RegisterPendingGame, EnsureGameSession,
@@ -279,6 +280,12 @@ impl Handler<ProcessClientMessage> for GameSession {
     type Result = ();
 
     fn handle(&mut self, msg: ProcessClientMessage, ctx: &mut Context<Self>) -> Self::Result {
+        // Verify that the session address matches the one registered for this wallet
+        if !is_game_session_addr_valid(&self.players, &msg.player_id, &msg.addr) {
+            warn!("[GameSession] Action ignored: session addr mismatch for wallet={}", msg.player_id);
+            return;
+        }
+
         // Ignore actions if the game hasn't started.
         if self.game_state.is_none() {
             return;
@@ -336,6 +343,7 @@ pub struct RegisterSession {
 #[rtype(result = "()")]
 pub struct UnregisterSession {
     pub wallet: WalletAddress,
+    pub addr: Addr<GameSessionActor>,
     pub is_player: bool,
 }
 
@@ -378,9 +386,19 @@ impl Handler<UnregisterSession> for GameSession {
 
     fn handle(&mut self, msg: UnregisterSession, _: &mut Context<Self>) -> Self::Result {
         if msg.is_player {
-            self.players.remove(&msg.wallet);
+            // Only remove the player if the address matches the registered one
+            if is_game_session_addr_valid(&self.players, &msg.wallet, &msg.addr) {
+                self.players.remove(&msg.wallet);
+            } else {
+                warn!("[GameSession] Unregister ignored: session addr mismatch for wallet={}", msg.wallet);
+            }
         } else {
-            self.spectators.remove(&msg.wallet);
+            // For spectators, apply the same verification
+            if is_game_session_spectator_addr_valid(&self.spectators, &msg.wallet, &msg.addr) {
+                self.spectators.remove(&msg.wallet);
+            } else {
+                warn!("[GameSession] Spectator unregister ignored: session addr mismatch for wallet={}", msg.wallet);
+            }
         }
     }
 }

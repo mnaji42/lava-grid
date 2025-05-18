@@ -5,6 +5,7 @@
 
 use actix::prelude::*;
 use serde::{Serialize, Deserialize};
+use actix::Addr;
 use uuid::Uuid;
 
 use super::session::GameSessionActor;
@@ -106,6 +107,15 @@ pub struct GameStateUpdate {
 #[rtype(result = "()")]
 pub struct SessionKicked {
     pub reason: String,
+}
+
+/// Message to unregister a session (player or spectator).
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct UnregisterSession {
+    pub wallet: WalletAddress,
+    pub is_player: bool,
+    pub addr: Addr<GameSessionActor>,
 }
 
 /// WebSocket messages sent from server to client during a game session.

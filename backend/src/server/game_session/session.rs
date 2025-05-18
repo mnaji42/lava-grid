@@ -39,12 +39,43 @@ impl Actor for GameSessionActor {
         });
     }
 
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
+    fn stopped(&mut self, ctx: &mut Self::Context) {
         // Unregister this session from the GameSession actor.
         self.session_addr.do_send(UnregisterSession {
             wallet: self.player_id.clone(),
             is_player: self.is_player,
+            addr: ctx.address(),
         });
+    }
+}
+
+impl GameSessionActor {
+    /// Checks if the session is a player (not a spectator).
+    /// If not, sends an error and returns false.
+    fn ensure_is_player(&self, ctx: &mut ws::WebsocketContext<Self>) -> bool {
+        if !self.is_player {
+            warn!(
+                "[WS] Command attempt by spectator: wallet={}",
+                self.player_id
+            );
+            ctx.text(ws_error_message(
+                "SPECTATOR_COMMAND",
+                "Spectators cannot send commands",
+                Some(&self.player_id),
+            ));
+            return false;
+        }
+        true
+    }
+
+    /// Sends an explicit error to the client and logs the reason.
+    fn send_explicit_error(&self, ctx: &mut ws::WebsocketContext<Self>, code: &str, message: &str) {
+        warn!("[WS] Error for wallet={}: {}", self.player_id, message);
+        ctx.text(ws_error_message(
+            code,
+            message,
+            Some(&self.player_id),
+        ));
     }
 }
 
@@ -57,16 +88,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                     self.player_id, self.is_player, text
                 );
                 // Only allow players (not spectators) to send commands.
-                if !self.is_player {
-                    warn!(
-                        "[WS] Command attempt by spectator: wallet={}",
-                        self.player_id
-                    );
-                    ctx.text(ws_error_message(
-                        "SPECTATOR_COMMAND",
-                        "Spectators cannot send commands",
-                        Some(&self.player_id),
-                    ));
+                if !self.ensure_is_player(ctx) {
                     return;
                 }
                 debug!(
@@ -77,15 +99,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                 let msg: GameClientWsMessage = match serde_json::from_str(text) {
                     Ok(m) => m,
                     Err(e) => {
-                        warn!(
-                            "[WS] Invalid command received from wallet={}: {} | Text: {}",
-                            self.player_id, e, text
-                        );
-                        ctx.text(ws_error_message(
+                        self.send_explicit_error(
+                            ctx,
                             "INVALID_ACTION",
-                            "Invalid command",
-                            Some(&self.player_id),
-                        ));
+                            &format!("Invalid command format: {}", e),
+                        );
                         return;
                     }
                 };
@@ -129,11 +147,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
             }
             Err(e) => {
                 error!("[WS] WebSocket error: wallet={} err={:?}", self.player_id, e);
-                ctx.text(ws_error_message(
+                self.send_explicit_error(
+                    ctx,
                     "WS_PROTOCOL_ERROR",
-                    "WebSocket protocol error",
-                    Some(&self.player_id),
-                ));
+                    &format!("WebSocket protocol error: {:?}", e),
+                );
                 ctx.stop();
             }
         }
@@ -142,51 +160,55 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
 
 impl Handler<GamePreGameData> for GameSessionActor {
     type Result = ();
+
     fn handle(&mut self, msg: GamePreGameData, ctx: &mut Self::Context) -> Self::Result {
         let ws_msg = GameWsMessage::GamePreGameData(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => ctx.text(text),
-            Err(_e) => ctx.text(ws_error_message(
+            Err(e) => self.send_explicit_error(
+                ctx,
                 "SERIALIZATION_ERROR",
-                "Failed to serialize available game modes",
-                Some(&self.player_id),
-            )),
+                &format!("Failed to serialize available game modes: {}", e),
+            ),
         }
     }
 }
 
 impl Handler<GameModeChosen> for GameSessionActor {
     type Result = ();
+
     fn handle(&mut self, msg: GameModeChosen, ctx: &mut Self::Context) -> Self::Result {
         let ws_msg = GameWsMessage::GameModeChosen(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => ctx.text(text),
-            Err(_e) => ctx.text(ws_error_message(
+            Err(e) => self.send_explicit_error(
+                ctx,
                 "SERIALIZATION_ERROR",
-                "Failed to serialize chosen mode",
-                Some(&self.player_id),
-            )),
+                &format!("Failed to serialize chosen mode: {}", e),
+            ),
         }
     }
 }
 
 impl Handler<GameModeVoteUpdate> for GameSessionActor {
     type Result = ();
+
     fn handle(&mut self, msg: GameModeVoteUpdate, ctx: &mut Self::Context) -> Self::Result {
         let ws_msg = GameWsMessage::GameModeVoteUpdate(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => ctx.text(text),
-            Err(_e) => ctx.text(ws_error_message(
+            Err(e) => self.send_explicit_error(
+                ctx,
                 "SERIALIZATION_ERROR",
-                "Failed to serialize vote update",
-                Some(&self.player_id),
-            )),
+                &format!("Failed to serialize vote update: {}", e),
+            ),
         }
     }
 }
 
 impl Handler<GameStateUpdate> for GameSessionActor {
     type Result = ();
+
     fn handle(&mut self, msg: GameStateUpdate, ctx: &mut Self::Context) -> Self::Result {
         debug!(
             "[WS] Sending GameStateUpdate to wallet={} (is_player={}): turn={} players={:?}",
@@ -203,11 +225,11 @@ impl Handler<GameStateUpdate> for GameSessionActor {
                     "[WS] Serialization error GameStateUpdate for wallet={}: {}",
                     self.player_id, e
                 );
-                ctx.text(ws_error_message(
+                self.send_explicit_error(
+                    ctx,
                     "SERIALIZATION_ERROR",
-                    "Failed to serialize game state",
-                    Some(&self.player_id),
-                ))
+                    &format!("Failed to serialize game state: {}", e),
+                );
             }
         }
     }

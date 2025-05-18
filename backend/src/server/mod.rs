@@ -13,3 +13,4 @@ pub mod router;
 pub mod matchmaking;
 pub mod game_session;
 pub mod ws_error;
+pub mod session_utils;

@@ -12,7 +12,7 @@ use log::{info, warn, debug};
 use crate::game::state::GameState;
 use crate::server::matchmaking::types::{PlayerInfo, WalletAddress};
 use crate::server::game_session::session::GameSessionActor;
-use crate::config::game::{TURN_DURATION, MODE_CHOICE_DURATION, GRID_ROW, GRID_COL};
+use crate::config::game::{TURN_DURATION, GRID_ROW, GRID_COL};
 use crate::game::types::GameMode;
 use crate::server::game_session::messages::{
     GameStateUpdate, ProcessClientMessage, PlayerAction, RegisterPendingGame, EnsureGameSession,

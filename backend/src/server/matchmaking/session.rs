@@ -1,29 +1,36 @@
-/// WebSocket session handler for matchmaking lobby.
+
+/// WebSocket session handler for a player in the matchmaking lobby.
 ///
-/// This actor manages a single player's connection to the matchmaking lobby,
-/// handling join/leave events and relaying client messages (such as payment or cancellation)
-/// to the matchmaking server. It also serializes and sends server messages to the client.
-use actix::prelude::*;
-use actix_web::{web, Error, HttpRequest, HttpResponse};
+/// Handles incoming client messages (pay, cancel, ping, etc.) and relays server updates.
+/// Centralizes error handling and ensures all business logic is executed.
+
+use actix::{Addr, Actor, StreamHandler, Handler, ActorContext, AsyncContext};
+use actix_web::{HttpRequest, HttpResponse, web, Error};
 use actix_web_actors::ws;
-use std::borrow::Cow;
+use log::{info, warn, error, debug};
 
-use super::messages::{ServerWsMessage, ClientWsMessage};
-use super::server::{Join, Leave, Pay, CancelPayment};
-use super::types::WalletAddress;
+use crate::server::matchmaking::server::{MatchmakingServer, Join, Leave, Pay, CancelPayment};
+use crate::server::matchmaking::messages::{ServerWsMessage, ClientWsMessage};
+use crate::server::matchmaking::types::WalletAddress;
+use crate::server::ws_error::{ws_error_message, http_error_response};
 
-/// Represents a player's WebSocket session in the matchmaking lobby.
+/// Represents a WebSocket session for a player in the matchmaking lobby.
 pub struct MatchmakingSession {
     pub player_id: WalletAddress,
     pub username: String,
-    pub matchmaking_addr: Addr<super::server::MatchmakingServer>,
+    pub matchmaking_addr: Addr<MatchmakingServer>,
 }
 
 impl Actor for MatchmakingSession {
     type Context = ws::WebsocketContext<Self>;
 
-    /// Called when the session starts. Registers the player in the matchmaking server.
+    /// Register this session with the matchmaking server.
     fn started(&mut self, ctx: &mut Self::Context) {
+        info!(
+            "[Matchmaking WS] Session started for wallet={} username={}",
+            self.player_id, self.username
+        );
+        // Register this session with the matchmaking server.
         self.matchmaking_addr.do_send(Join {
             player_id: self.player_id.clone(),
             addr: ctx.address(),
@@ -31,8 +38,12 @@ impl Actor for MatchmakingSession {
         });
     }
 
-    /// Called when the session stops. Removes the player from the matchmaking server.
+    /// Unregister this session from the matchmaking server.
     fn stopped(&mut self, _ctx: &mut Self::Context) {
+        info!(
+            "[Matchmaking WS] Session stopped for wallet={} username={}",
+            self.player_id, self.username
+        );
         self.matchmaking_addr.do_send(Leave {
             player_id: self.player_id.clone(),
         });
@@ -40,36 +51,74 @@ impl Actor for MatchmakingSession {
 }
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSession {
-    /// Handles incoming WebSocket messages from the client.
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
-            Ok(ws::Message::Text(text)) => {
-                // Parse the client message as JSON and handle business actions.
-                match serde_json::from_str::<ClientWsMessage>(&text) {
-                    Ok(ClientWsMessage::Pay) => {
-                        // Player wants to pay and become ready.
+            Ok(ws::Message::Text(ref text)) => {
+                info!(
+                    "[Matchmaking WS] Message received from wallet={}: {}",
+                    self.player_id, text
+                );
+                // Parse the client message as JSON.
+                let msg: ClientWsMessage = match serde_json::from_str(text) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        warn!(
+                            "[Matchmaking WS] Invalid command from wallet={}: {} | Text: {}",
+                            self.player_id, e, text
+                        );
+                        ctx.text(ws_error_message(
+                            "INVALID_ACTION",
+                            "Invalid command",
+                            Some(&self.player_id),
+                        ));
+                        return;
+                    }
+                };
+                debug!(
+                    "[Matchmaking WS] Successfully parsed client message for wallet={}: {:?}",
+                    self.player_id, msg
+                );
+                // Handle the parsed client message.
+                match msg {
+                    ClientWsMessage::Pay => {
                         self.matchmaking_addr.do_send(Pay {
                             player_id: self.player_id.clone(),
                         });
                     }
-                    Ok(ClientWsMessage::CancelPayment) => {
-                        // Player wants to cancel payment and return to lobby.
+                    ClientWsMessage::CancelPayment => {
                         self.matchmaking_addr.do_send(CancelPayment {
                             player_id: self.player_id.clone(),
                         });
                     }
-                    Ok(ClientWsMessage::Ping) => {
-                        // Ping received; can be ignored or responded to.
-                    }
-                    Err(_e) => {
-                        // Invalid client message format.
-                        ctx.text(r#"{"action":"Error","data":{"message":"Invalid client message"}}"#);
+                    ClientWsMessage::Ping => {
+                        debug!("[Matchmaking WS] Received Ping from wallet={}", self.player_id);
+                        // Optionally, respond or ignore.
                     }
                 }
             }
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
-            Ok(ws::Message::Close(_)) => ctx.stop(),
-            _ => (),
+            Ok(ws::Message::Close(_)) => {
+                info!("[Matchmaking WS] Connection closed: wallet={}", self.player_id);
+                ctx.stop();
+            }
+            Ok(other) => {
+                warn!(
+                    "[Matchmaking WS] Ignored WebSocket message from wallet={}: {:?}",
+                    self.player_id, other
+                );
+            }
+            Err(e) => {
+                error!(
+                    "[Matchmaking WS] WebSocket error: wallet={} err={:?}",
+                    self.player_id, e
+                );
+                ctx.text(ws_error_message(
+                    "WS_PROTOCOL_ERROR",
+                    "WebSocket protocol error",
+                    Some(&self.player_id),
+                ));
+                ctx.stop();
+            }
         }
     }
 }
@@ -82,9 +131,15 @@ impl Handler<ServerWsMessage> for MatchmakingSession {
         match serde_json::to_string(&msg) {
             Ok(text) => ctx.text(text),
             Err(e) => {
-                // Serialization error: notify client and close connection.
-                println!("Failed to serialize ServerWsMessage: {}", e);
-                ctx.text(r#"{"action":"Error","data":"Internal server error"}"#);
+                error!(
+                    "[Matchmaking WS] Failed to serialize ServerWsMessage for wallet={}: {}",
+                    self.player_id, e
+                );
+                ctx.text(ws_error_message(
+                    "SERIALIZATION_ERROR",
+                    "Internal server error",
+                    Some(&self.player_id),
+                ));
                 ctx.close(Some(ws::CloseReason {
                     code: ws::CloseCode::Error,
                     description: Some("Internal server error".into()),
@@ -104,6 +159,7 @@ pub async fn ws_matchmaking(
     stream: web::Payload,
     data: web::Data<crate::server::state::AppState>,
 ) -> Result<HttpResponse, Error> {
+    use std::borrow::Cow;
     let mut player_id: Option<WalletAddress> = None;
     let mut username = String::new();
 
@@ -112,7 +168,6 @@ pub async fn ws_matchmaking(
         let mut split = kv.split('=');
         match (split.next(), split.next()) {
             (Some("wallet"), Some(addr)) => {
-                // Optionally, address format validation could be added here.
                 player_id = Some(addr.to_string());
             }
             (Some("username"), Some(name)) => {
@@ -128,7 +183,13 @@ pub async fn ws_matchmaking(
     let player_id = match player_id {
         Some(addr) if !addr.is_empty() => addr,
         _ => {
-            return Ok(HttpResponse::BadRequest().body("Missing wallet address"));
+            warn!("[Matchmaking WS] Connection refused: missing wallet address");
+            return Ok(http_error_response(
+                "MISSING_WALLET",
+                "Missing wallet address",
+                None,
+                actix_web::http::StatusCode::BAD_REQUEST,
+            ));
         }
     };
 

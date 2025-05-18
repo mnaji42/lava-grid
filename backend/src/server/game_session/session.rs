@@ -3,15 +3,20 @@
 //! This actor manages a single WebSocket connection to a game session, handling
 //! incoming client messages (actions, votes) and relaying server updates.
 
-use actix::{Addr, Actor, StreamHandler, AsyncContext, Handler};
-use actix_web::{HttpRequest, HttpResponse, web, Error, error};
+use actix::{Addr, Actor, StreamHandler, Handler, ActorContext};
+use actix_web::{HttpRequest, HttpResponse, web, Error};
 use actix_web_actors::ws;
 use uuid::Uuid;
 use log::{info, warn, error, debug};
+use actix::AsyncContext;
 
 use crate::server::game_session::server::{GameSession, UnregisterSession, RegisterSession};
-use crate::server::game_session::messages::{GamePreGameData, GameModeChosen, ProcessClientMessage, GameStateUpdate, PlayerAction, GameWsMessage, EnsureGameSession, GameModeVoteUpdate, GameClientWsMessage};
+use crate::server::game_session::messages::{
+    GamePreGameData, GameModeChosen, ProcessClientMessage, GameStateUpdate, PlayerAction,
+    GameWsMessage, EnsureGameSession, GameModeVoteUpdate, GameClientWsMessage, GameModeVote
+};
 use crate::server::matchmaking::types::WalletAddress;
+use crate::server::ws_error::{ws_error_message, http_error_response};
 
 /// Represents a WebSocket session for a player or spectator in a game.
 pub struct GameSessionActor {
@@ -56,7 +61,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                         "[WS] Command attempt by spectator: wallet={}",
                         self.player_id
                     );
-                    ctx.text(r#"{"error":"Spectators cannot send commands"}"#);
+                    ctx.text(ws_error_message(
+                        "SPECTATOR_COMMAND",
+                        "Spectators cannot send commands",
+                        Some(&self.player_id),
+                    ));
                     return;
                 }
                 debug!(
@@ -71,7 +80,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                             "[WS] Invalid command received from wallet={}: {} | Text: {}",
                             self.player_id, e, text
                         );
-                        ctx.text(r#"{"error":"Invalid command"}"#);
+                        ctx.text(ws_error_message(
+                            "INVALID_ACTION",
+                            "Invalid command",
+                            Some(&self.player_id),
+                        ));
                         return;
                     }
                 };
@@ -97,7 +110,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                     }
                     GameClientWsMessage::GameModeVote { mode } => {
                         // Forward the mode vote to the session.
-                        self.session_addr.do_send(crate::server::game_session::messages::GameModeVote {
+                        self.session_addr.do_send(GameModeVote {
                             player_id: self.player_id.clone(),
                             mode,
                         });
@@ -105,17 +118,22 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor 
                     // Add other variants here if needed.
                 }
             }
-            Ok(ws::Message::Ping(_)) => {
-                debug!("[WS] Ping received from wallet={}", self.player_id);
-            }
+            Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
             Ok(ws::Message::Close(_)) => {
                 info!("[WS] Connection closed: wallet={}", self.player_id);
+                ctx.stop();
             }
             Ok(other) => {
                 debug!("[WS] Ignored WebSocket message: {:?}", other);
             }
             Err(e) => {
                 error!("[WS] WebSocket error: wallet={} err={:?}", self.player_id, e);
+                ctx.text(ws_error_message(
+                    "WS_PROTOCOL_ERROR",
+                    "WebSocket protocol error",
+                    Some(&self.player_id),
+                ));
+                ctx.stop();
             }
         }
     }
@@ -127,7 +145,11 @@ impl Handler<GamePreGameData> for GameSessionActor {
         let ws_msg = GameWsMessage::GamePreGameData(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => ctx.text(text),
-            Err(_e) => ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize available game modes"}}"#),
+            Err(_e) => ctx.text(ws_error_message(
+                "SERIALIZATION_ERROR",
+                "Failed to serialize available game modes",
+                Some(&self.player_id),
+            )),
         }
     }
 }
@@ -138,7 +160,11 @@ impl Handler<GameModeChosen> for GameSessionActor {
         let ws_msg = GameWsMessage::GameModeChosen(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => ctx.text(text),
-            Err(_e) => ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize chosen mode"}}"#),
+            Err(_e) => ctx.text(ws_error_message(
+                "SERIALIZATION_ERROR",
+                "Failed to serialize chosen mode",
+                Some(&self.player_id),
+            )),
         }
     }
 }
@@ -149,7 +175,11 @@ impl Handler<GameModeVoteUpdate> for GameSessionActor {
         let ws_msg = GameWsMessage::GameModeVoteUpdate(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => ctx.text(text),
-            Err(_e) => ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize vote update"}}"#),
+            Err(_e) => ctx.text(ws_error_message(
+                "SERIALIZATION_ERROR",
+                "Failed to serialize vote update",
+                Some(&self.player_id),
+            )),
         }
     }
 }
@@ -172,7 +202,11 @@ impl Handler<GameStateUpdate> for GameSessionActor {
                     "[WS] Serialization error GameStateUpdate for wallet={}: {}",
                     self.player_id, e
                 );
-                ctx.text(r#"{"action":"Error","data":{"message":"Failed to serialize game state"}}"#)
+                ctx.text(ws_error_message(
+                    "SERIALIZATION_ERROR",
+                    "Failed to serialize game state",
+                    Some(&self.player_id),
+                ))
             }
         }
     }
@@ -190,7 +224,12 @@ pub async fn ws_game(
         Ok(uuid) => uuid,
         Err(_) => {
             warn!("[WS] Invalid game_id received: {}", game_id_str);
-            return Ok(HttpResponse::BadRequest().body("Invalid game_id"));
+            return Ok(http_error_response(
+                "INVALID_GAME_ID",
+                "Invalid game_id",
+                Some(&game_id_str),
+                actix_web::http::StatusCode::BAD_REQUEST,
+            ));
         }
     };
 
@@ -209,28 +248,56 @@ pub async fn ws_game(
         Some(addr) if !addr.is_empty() => addr,
         _ => {
             warn!("[WS] Connection refused: missing wallet for game_id={}", game_id);
-            return Ok(HttpResponse::BadRequest().body("Missing wallet address"));
+            return Ok(http_error_response(
+                "MISSING_WALLET",
+                "Missing wallet address",
+                Some(&game_id.to_string()),
+                actix_web::http::StatusCode::BAD_REQUEST,
+            ));
         }
     };
 
-    // Request creation or retrieval of the GameSession actor.
-    let session_addr = data.game_session_manager
-        .send(EnsureGameSession { game_id, mode: None })
+    // Ensure the game session exists or create it.
+    let session_addr = match data
+        .game_session_manager
+        .send(EnsureGameSession {
+            game_id,
+            mode: None,
+        })
         .await
-        .map_err(error::ErrorInternalServerError)?
-        .map_err(error::ErrorBadRequest)?;
-
-    // Check if the wallet is a player in the game.
-    let is_player = session_addr
-        .send(crate::server::game_session::server::IsPlayer(player_id.clone()))
-        .await
-        .unwrap_or(false);
+    {
+        Ok(Ok(addr)) => addr,
+        Ok(Err(e)) => {
+            error!(
+                "[WS] Failed to ensure game session for game_id={}: {}",
+                game_id, e
+            );
+            return Ok(http_error_response(
+                "GAME_SESSION_ERROR",
+                &e,
+                Some(&game_id.to_string()),
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ));
+        }
+        Err(e) => {
+            error!(
+                "[WS] Mailbox error when ensuring game session for game_id={}: {}",
+                game_id, e
+            );
+            return Ok(http_error_response(
+                "MAILBOX_ERROR",
+                "Internal server error",
+                Some(&game_id.to_string()),
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ));
+        }
+    };
 
     ws::start(
         GameSessionActor {
             game_id,
-            player_id,
-            is_player,
+            player_id: player_id.clone(),
+            is_player: true, // TODO: handle spectators if needed
             session_addr,
         },
         &req,

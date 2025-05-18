@@ -16,7 +16,7 @@ use crate::config::game::{TURN_DURATION, GRID_ROW, GRID_COL};
 use crate::game::types::GameMode;
 use crate::server::game_session::messages::{
     GameStateUpdate, ProcessClientMessage, PlayerAction, RegisterPendingGame, EnsureGameSession,
-    GameModeVote
+    GameModeVote, SessionKicked
 };
 use crate::server::game_session::mode_choice::ModeChoice;
 use crate::server::game_session::turn_resolution::{start_new_turn, resolve_turn};
@@ -135,27 +135,7 @@ impl GameSession {
             turn_in_progress: false,
         }
     }
-
-    /// Register a player or spectator session.
-    fn handle_register_session(&mut self, msg: RegisterSession, _: &mut Context<Self>) {
-        if msg.is_player {
-            self.players.insert(msg.wallet.clone(), msg.addr.clone());
-        } else {
-            self.spectators.insert(msg.wallet.clone(), msg.addr.clone());
-        }
-        // Send the appropriate state depending on the phase.
-        if self.game_state.is_none() {
-            self.mode_choice.broadcast_to_players_pre_game_data(
-                &self.players,
-                &self.spectators,
-                &self.player_infos,
-            );
-        } else {
-            if let Some(ref state) = self.game_state {
-                msg.addr.do_send(GameStateUpdate { state: state.clone(), turn_duration: TURN_DURATION });
-            }
-        }
-    }
+    
 
     /// Start the mode choice phase (used for restarts or new games).
     fn start_mode_choice(&mut self, ctx: &mut Context<Self>) {
@@ -364,8 +344,18 @@ impl Handler<RegisterSession> for GameSession {
 
     fn handle(&mut self, msg: RegisterSession, _: &mut Context<Self>) -> Self::Result {
         if msg.is_player {
+            if let Some(old_addr) = self.players.get(&msg.wallet) {
+                old_addr.do_send(SessionKicked {
+                    reason: "Another session has connected with your wallet in this game.".to_string(),
+                });
+            }
             self.players.insert(msg.wallet.clone(), msg.addr.clone());
         } else {
+            if let Some(old_addr) = self.spectators.get(&msg.wallet) {
+                old_addr.do_send(SessionKicked {
+                    reason: "Another session has connected with your wallet in this game (spectator).".to_string(),
+                });
+            }
             self.spectators.insert(msg.wallet.clone(), msg.addr.clone());
         }
 

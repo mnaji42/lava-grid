@@ -10,9 +10,9 @@ use actix_web_actors::ws;
 use log::{info, warn, error, debug};
 
 use crate::server::matchmaking::server::{MatchmakingServer, Join, Leave, Pay, CancelPayment};
-use crate::server::matchmaking::messages::{ServerWsMessage, ClientWsMessage};
+use crate::server::matchmaking::messages::{ServerWsMessage, ClientWsMessage, SessionKicked};
 use crate::server::matchmaking::types::WalletAddress;
-use crate::server::ws_error::{ws_error_message, http_error_response};
+use crate::server::ws_error::{ws_error_message, http_error_response, ws_session_kicked_message};
 
 /// Represents a WebSocket session for a player in the matchmaking lobby.
 pub struct MatchmakingSession {
@@ -39,13 +39,14 @@ impl Actor for MatchmakingSession {
     }
 
     /// Unregister this session from the matchmaking server.
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
+    fn stopped(&mut self, ctx: &mut Self::Context) {
         info!(
             "[Matchmaking WS] Session stopped for wallet={} username={}",
             self.player_id, self.username
         );
         self.matchmaking_addr.do_send(Leave {
             player_id: self.player_id.clone(),
+            addr: ctx.address(),
         });
     }
 }
@@ -83,11 +84,13 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSessio
                     ClientWsMessage::Pay => {
                         self.matchmaking_addr.do_send(Pay {
                             player_id: self.player_id.clone(),
+                            addr: ctx.address(),
                         });
                     }
                     ClientWsMessage::CancelPayment => {
                         self.matchmaking_addr.do_send(CancelPayment {
                             player_id: self.player_id.clone(),
+                            addr: ctx.address(),
                         });
                     }
                     ClientWsMessage::Ping => {
@@ -120,6 +123,17 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatchmakingSessio
                 ctx.stop();
             }
         }
+    }
+}
+
+impl Handler<SessionKicked> for MatchmakingSession {
+    type Result = ();
+
+    /// Handles the session being kicked from the server.
+    fn handle(&mut self, _msg: SessionKicked, ctx: &mut Self::Context) -> Self::Result {
+        info!("[Matchmaking WS] Session kicked: wallet={}", self.player_id);
+        ctx.text(ws_session_kicked_message(Some(&self.player_id)));
+        ctx.stop();
     }
 }
 

@@ -18,6 +18,9 @@ use crate::server::game_session::server::GameSessionManager;
 
 type SessionAddr = Addr<MatchmakingSession>;
 
+use crate::server::matchmaking::messages::SessionKicked;
+
+
 /// Represents a player currently connected to the lobby or ready group.
 #[derive(Debug, Clone)]
 struct ConnectedPlayer {
@@ -162,11 +165,13 @@ impl MatchmakingServer {
         });
     }
 
-    /// Remove a player from all ready groups.
-    fn remove_player_from_ready_groups(&mut self, player_id: &WalletAddress) -> Option<ConnectedPlayer> {
+    /// Remove a player from all ready groups, but only if the session address matches.
+    fn remove_player_from_ready_groups(&mut self, player_id: &WalletAddress, addr: &SessionAddr) -> Option<ConnectedPlayer> {
         for group in &mut self.ready_groups {
-            if let Some(player) = group.remove(player_id) {
-                return Some(player);
+            if let Some(player) = group.get(player_id) {
+                if &player.addr == addr {
+                    return group.remove(player_id);
+                }
             }
         }
         None
@@ -198,6 +203,7 @@ pub struct Join {
 #[rtype(result = "()")]
 pub struct Leave {
     pub player_id: WalletAddress,
+    pub addr: SessionAddr,
 }
 
 /// Message: player pays to become ready.
@@ -205,6 +211,7 @@ pub struct Leave {
 #[rtype(result = "()")]
 pub struct Pay {
     pub player_id: WalletAddress,
+    pub addr: SessionAddr,
 }
 
 /// Message: player cancels payment and returns to lobby.
@@ -212,6 +219,7 @@ pub struct Pay {
 #[rtype(result = "()")]
 pub struct CancelPayment {
     pub player_id: WalletAddress,
+    pub addr: SessionAddr,
 }
 
 impl Actor for MatchmakingServer {
@@ -223,20 +231,32 @@ impl Handler<Join> for MatchmakingServer {
 
     /// Handles a player joining the lobby.
     fn handle(&mut self, msg: Join, _ctx: &mut Self::Context) -> Self::Result {
-        // If the player is already in a ready group, update their address (reconnection).
+        // If the player is already in a ready group, kick the old session and update their address.
         if let Some(group) = self.find_group_of_player_mut(&msg.player_id) {
             if let Some(player) = group.get_mut(&msg.player_id) {
-                player.addr = msg.addr;
-                debug!("[Matchmaking] Player {} reconnected in ready_groups", msg.player_id);
-                self.send_state();
+                if player.addr != msg.addr {
+                    // Kick the old session before replacing
+                    player.addr.do_send(SessionKicked {
+                        reason: "Another session has connected with your wallet.".to_string(),
+                    });
+                    player.addr = msg.addr.clone();
+                    debug!("[Matchmaking] Player {} reconnected in ready_groups (old session kicked)", msg.player_id);
+                    self.send_state();
+                }
                 return;
             }
         }
-        // If the player is already in the lobby, update their address (reconnection).
+        // If the player is already in the lobby, kick the old session and update their address.
         if let Some(player) = self.lobby_players.get_mut(&msg.player_id) {
-            player.addr = msg.addr;
-            debug!("[Matchmaking] Player {} reconnected in lobby_players", msg.player_id);
-            self.send_state();
+            if player.addr != msg.addr {
+                // Kick the old session before replacing
+                player.addr.do_send(SessionKicked {
+                    reason: "Another session has connected with your wallet.".to_string(),
+                });
+                player.addr = msg.addr.clone();
+                debug!("[Matchmaking] Player {} reconnected in lobby_players (old session kicked)", msg.player_id);
+                self.send_state();
+            }
             return;
         }
         // Otherwise, add as a new player in the lobby.
@@ -251,22 +271,33 @@ impl Handler<Leave> for MatchmakingServer {
 
     /// Handles a player leaving the lobby or ready group.
     fn handle(&mut self, msg: Leave, _ctx: &mut Self::Context) -> Self::Result {
-        // Remove from lobby if present.
-        if self.lobby_players.remove(&msg.player_id).is_some() {
-            debug!("[Matchmaking] Player {} left lobby_players", msg.player_id);
-            self.send_state();
+        // Remove from lobby if present and session matches.
+        if let Some(player) = self.lobby_players.get(&msg.player_id) {
+            if player.addr == msg.addr {
+                self.lobby_players.remove(&msg.player_id);
+                debug!("[Matchmaking] Player {} left lobby_players", msg.player_id);
+                self.send_state();
+            }
             return;
         }
 
         let countdown_active = self.countdown.is_some();
         // If in a ready group, handle leave logic.
         if let Some(group) = self.find_group_of_player_mut(&msg.player_id) {
+            if let Some(player) = group.get(&msg.player_id) {
+                if player.addr != msg.addr {
+                    // Not the same session, ignore.
+                    return;
+                }
+            }
+            
             if countdown_active {
                 // Players cannot leave during countdown (game is about to start).
                 debug!("[Matchmaking] Player {} tried to leave during countdown (not allowed)", msg.player_id);
                 // TODO: send error message to client if needed.
                 return;
             }
+            
             group.remove(&msg.player_id);
             debug!("[Matchmaking] Player {} left ready_groups (removed, not put back in lobby)", msg.player_id);
             // Remove empty groups.
@@ -284,16 +315,21 @@ impl Handler<Pay> for MatchmakingServer {
     /// Handles a player paying to become ready.
     fn handle(&mut self, msg: Pay, ctx: &mut Self::Context) -> Self::Result {
         // If already in a ready group, ignore (cannot pay twice).
-        if self.find_group_of_player_mut(&msg.player_id).is_some() {
-            debug!("[Matchmaking] Player {} tried to pay but is already ready", msg.player_id);
-            // TODO: send error message to client if needed.
-            return;
+        if let Some(group) = self.find_group_of_player_mut(&msg.player_id) {
+            if let Some(player) = group.get(&msg.player_id) {
+                if player.addr == msg.addr {
+                    debug!("[Matchmaking] Player {} tried to pay but is already ready (same session)", msg.player_id);
+                    // TODO: send error message to client if needed.
+                    return;
+                }
+            }
         }
-        // Remove from lobby; if not present, ignore.
-        let player = match self.lobby_players.remove(&msg.player_id) {
-            Some(p) => p,
-            None => {
-                debug!("[Matchmaking] Player {} tried to pay but is not in lobby_players", msg.player_id);
+        
+        // Remove from lobby; only if session matches.
+        let player = match self.lobby_players.get(&msg.player_id) {
+            Some(p) if p.addr == msg.addr => self.lobby_players.remove(&msg.player_id).unwrap(),
+            _ => {
+                debug!("[Matchmaking] Player {} tried to pay but is not in lobby_players or session mismatch", msg.player_id);
                 // TODO: send error message to client if needed.
                 return;
             }
@@ -343,6 +379,14 @@ impl Handler<CancelPayment> for MatchmakingServer {
             return;
         }
         let group = group.unwrap();
+
+        // Check if the session matches
+        if let Some(player) = group.get(&msg.player_id) {
+            if player.addr != msg.addr {
+                // Not the same session, ignore.
+                return;
+            }
+        }
 
         if countdown_active {
             // Cannot cancel payment during countdown (game is about to start).

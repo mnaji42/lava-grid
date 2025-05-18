@@ -101,6 +101,13 @@ pub struct GameStateUpdate {
     pub turn_duration: u64,
 }
 
+/// Message to kick a session (unicity violation).
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct SessionKicked {
+    pub reason: String,
+}
+
 /// WebSocket messages sent from server to client during a game session.
 #[derive(Message, Serialize, Deserialize, Clone, Debug)]
 #[rtype(result = "()")]
@@ -114,6 +121,8 @@ pub enum GameWsMessage {
     GameEnded { winner: String },
     /// Error message.
     Error { message: String },
+    /// Session kicked notification.
+    SessionKicked { reason: String },
     /// Pre-game data (mode choice, players, deadline).
     GamePreGameData(GamePreGameData),
     /// Notification of a mode vote.

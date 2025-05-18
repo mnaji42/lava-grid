@@ -31,6 +31,14 @@ pub enum ClientWsMessage {
     Ping,
 }
 
+/// Message to notify that a session has been kicked (e.g., due to being replaced).
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct SessionKicked {
+    pub reason: String,
+}
+
+
 /// Messages sent from server to client over WebSocket.
 #[derive(Message, Serialize, Deserialize, Clone, Debug)]
 #[rtype(result = "()")]
@@ -45,6 +53,10 @@ pub enum ServerWsMessage {
     /// Notify the client of an error.
     Error {
         message: String,
+    },
+    /// Notify the client that their session has been kicked.
+    SessionKicked {
+        reason: String,
     },
 }
 
@@ -61,4 +73,9 @@ impl ServerWsMessage {
     pub fn error(message: &str) -> Self {
         Self::Error { message: message.to_string() }
     }
+    /// Helper to create a SessionKicked message.
+    pub fn session_kicked(reason: &str) -> Self {
+        Self::SessionKicked { reason: reason.to_string() }
+    }
 }
+

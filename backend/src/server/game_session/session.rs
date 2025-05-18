@@ -13,10 +13,11 @@ use actix::AsyncContext;
 use crate::server::game_session::server::{GameSession, UnregisterSession, RegisterSession};
 use crate::server::game_session::messages::{
     GamePreGameData, GameModeChosen, ProcessClientMessage, GameStateUpdate, PlayerAction,
-    GameWsMessage, EnsureGameSession, GameModeVoteUpdate, GameClientWsMessage, GameModeVote
+    GameWsMessage, EnsureGameSession, GameModeVoteUpdate, GameClientWsMessage, GameModeVote,
+    SessionKicked
 };
 use crate::server::matchmaking::types::WalletAddress;
-use crate::server::ws_error::{ws_error_message, http_error_response};
+use crate::server::ws_error::{ws_error_message, http_error_response, ws_session_kicked_message};
 
 /// Represents a WebSocket session for a player or spectator in a game.
 pub struct GameSessionActor {
@@ -209,6 +210,16 @@ impl Handler<GameStateUpdate> for GameSessionActor {
                 ))
             }
         }
+    }
+}
+
+impl Handler<SessionKicked> for GameSessionActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: SessionKicked, ctx: &mut Self::Context) -> Self::Result {
+        info!("[WS] Session kicked: wallet={}", self.player_id);
+        ctx.text(ws_session_kicked_message(Some(&self.player_id)));
+        ctx.stop();
     }
 }
 

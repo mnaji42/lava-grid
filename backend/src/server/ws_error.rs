@@ -17,6 +17,15 @@ pub fn ws_error_message(code: &str, message: &str, context: Option<&str>) -> Str
     )
 }
 
+/// Returns a WebSocket message for session kicked (unicity violation).
+pub fn ws_session_kicked_message(context: Option<&str>) -> String {
+    ws_error_message(
+        "SESSION_KICKED",
+        "You have been disconnected because another session has connected with your wallet.",
+        context,
+    )
+}
+
 /// Returns an HTTP error response with a JSON body.
 ///
 /// # Arguments

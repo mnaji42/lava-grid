@@ -127,7 +127,7 @@ Notifies the client of an error (invalid action, protocol error, etc).
   "data": {
     "code": "ERROR_CODE",
     "message": "Human-readable error message",
-    "context": "optional context string"
+    "context": { ... } // Optional, can be a string or an object with additional info
   }
 }
 ```
@@ -136,7 +136,7 @@ Notifies the client of an error (invalid action, protocol error, etc).
 
 - `code`: Unique error code (see [Error Codes Reference](#error-codes-reference)).
 - `message`: Human-readable description of the error.
-- `context`: Optional string providing additional context (e.g., wallet address).
+- `context`: Optional. Can be a string or an object providing additional context (e.g., wallet address, ban info, etc).
 
 ---
 
@@ -434,6 +434,24 @@ Below are common error codes that may be sent in `Error` messages:
   }
 }
 ```
+
+### Example: Error (Ban)
+
+```json
+{
+  "action": "Error",
+  "data": {
+    "code": "BANNED",
+    "message": "You have been banned for spamming. Please try again later.",
+    "context": {
+      "wallet": "0x123...",
+      "ban_remaining_secs": 42
+    }
+  }
+}
+```
+
+> **Note:** The `context` field can be either a string or an object, depending on the error type. For bans, it includes the wallet and the remaining ban duration in seconds.
 
 ### Example: Session Kicked
 

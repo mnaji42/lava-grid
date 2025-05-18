@@ -91,6 +91,17 @@ impl AntiSpamState {
         self.banned_until
     }
 
+    /// Returns the remaining ban duration in seconds, or 0 if not banned.
+    pub fn ban_remaining_secs(&self, wallet: &str) -> u64 {
+        if let Some(until) = self.banned_until {
+            let now = Instant::now();
+            if until > now {
+                return (until - now).as_secs();
+            }
+        }
+        0
+    }
+
     /// Ban the session for BAN_DURATION_SECONDS.
     fn ban(&mut self, wallet: &str, reason: &str) {
         let until = Instant::now() + Duration::from_secs(BAN_DURATION_SECONDS);

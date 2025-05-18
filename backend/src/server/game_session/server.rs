@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use log::{info, warn, debug};
+use serde_json::json;
 
 use crate::game::state::GameState;
 use crate::server::matchmaking::types::{PlayerInfo, WalletAddress};
@@ -288,7 +289,7 @@ impl Handler<ProcessClientMessage> for GameSession {
                 text: ws_error_message(
                     "SESSION_ADDR_MISMATCH",
                     "Session address mismatch: your session is not recognized for this game.",
-                    Some(&msg.player_id),
+                    Some(json!(msg.player_id)),
                 ),
             });
             return;
@@ -300,7 +301,7 @@ impl Handler<ProcessClientMessage> for GameSession {
                 text: ws_error_message(
                     "GAME_NOT_STARTED",
                     "Game has not started yet. You cannot act now.",
-                    Some(&msg.player_id),
+                    Some(json!(msg.player_id)),
                 ),
             });
             return;
@@ -312,7 +313,7 @@ impl Handler<ProcessClientMessage> for GameSession {
                 text: ws_error_message(
                     "TURN_NOT_IN_PROGRESS",
                     "Turn is not in progress. Please wait for your turn.",
-                    Some(&msg.player_id),
+                    Some(json!(msg.player_id)),
                 ),
             });
             return;
@@ -326,7 +327,7 @@ impl Handler<ProcessClientMessage> for GameSession {
                     text: ws_error_message(
                         "UNKNOWN_PLAYER",
                         "Unknown player: you are not part of this game.",
-                        Some(&msg.player_id),
+                        Some(json!(msg.player_id)),
                     ),
                 });
                 return;
@@ -340,7 +341,7 @@ impl Handler<ProcessClientMessage> for GameSession {
                 text: ws_error_message(
                     "PLAYER_ELIMINATED",
                     "You are eliminated and cannot act anymore.",
-                    Some(&msg.player_id),
+                    Some(json!(msg.player_id)),
                 ),
             });
             return;
@@ -353,7 +354,7 @@ impl Handler<ProcessClientMessage> for GameSession {
                 text: ws_error_message(
                     "ALREADY_ACTED",
                     "You have already acted this turn. Please wait for the next turn.",
-                    Some(&msg.player_id),
+                    Some(json!(msg.player_id)),
                 ),
             });
             return;

@@ -34,21 +34,27 @@ pub struct GameState {
 impl GameState {
     /// Create a new game state with the given grid size, player infos, and mode.
     pub fn new(rows: usize, cols: usize, player_infos: Vec<PlayerInfo>, mode: GameMode) -> Self {
+        // Generate the grid only once
+        let grid = generate_grid(rows, cols);
+        
         let mut players = vec![];
 
         // Spawn each player at a random valid position.
         for (i, info) in player_infos.iter().enumerate() {
-            if let Some(player) = spawn_random_player(&generate_grid(rows, cols), &players, (i+1) as u8, info.username.clone()) {
+            if let Some(player) = spawn_random_player(&grid, &players, (i+1) as u8, info.username.clone()) {
                 players.push(player);
             }
         }
 
+        // Initialize an empty cannonballs list
+        let cannonballs_list: Vec<Cannonball> = Vec::new();
+        
         // Randomly determine the number of cannonballs to spawn (1 to 3).
         let nb_cannonballs = rng().random_range(1..=3);
-        let cannonballs = spawn_random_cannonballs(&generate_grid(rows, cols), &players, 0, nb_cannonballs);
+        let cannonballs = spawn_random_cannonballs(&grid, &players, &cannonballs_list, nb_cannonballs);
 
         GameState {
-            grid: generate_grid(rows, cols),
+            grid,
             players,
             cannonballs,
             turn: 1,

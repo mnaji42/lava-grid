@@ -11,7 +11,7 @@ use rand::seq::IteratorRandom;
 pub fn spawn_random_cannonballs(
     grid: &Vec<Vec<Cell>>,
     players: &Vec<Player>,
-    existing_cannonballs: usize,
+    cannonballs: &Vec<Cannonball>,
     count: usize,
 ) -> Vec<Cannonball> {
     let mut rng = rand::rng();
@@ -29,7 +29,7 @@ pub fn spawn_random_cannonballs(
 
     // Mark positions occupied by players and existing cannonballs.
     let occupied_positions: Vec<Position> = players.iter().map(|p| p.pos)
-        .chain(std::iter::repeat(Position { x: 0, y: 0 }).take(existing_cannonballs)) // TODO: Fix for real cannonball positions
+        .chain(cannonballs.iter().map(|c| c.pos))
         .collect();
 
     // Only keep positions not occupied.

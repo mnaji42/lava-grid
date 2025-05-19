@@ -60,22 +60,3 @@ pub enum ServerWsMessage {
     },
 }
 
-impl ServerWsMessage {
-    /// Helper to create an UpdateState message.
-    pub fn update_state(state: MatchmakingState) -> Self {
-        Self::UpdateState(state)
-    }
-    /// Helper to create a GameStarted message.
-    pub fn game_started(game_id: Uuid) -> Self {
-        Self::GameStarted { game_id }
-    }
-    /// Helper to create an Error message.
-    pub fn error(message: &str) -> Self {
-        Self::Error { message: message.to_string() }
-    }
-    /// Helper to create a SessionKicked message.
-    pub fn session_kicked(reason: &str) -> Self {
-        Self::SessionKicked { reason: reason.to_string() }
-    }
-}
-

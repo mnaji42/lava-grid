@@ -169,7 +169,7 @@ impl MatchmakingServer {
     /// Remove a player from all ready groups, but only if the session address matches.
     fn remove_player_from_ready_groups(&mut self, player_id: &WalletAddress, addr: &SessionAddr) -> Option<ConnectedPlayer> {
         for group in &mut self.ready_groups {
-            if let Some(player) = group.get(player_id) {
+            if let Some(_player) = group.get(player_id) {
                 if is_matchmaking_session_addr_valid(group, player_id, addr) {
                     return group.remove(player_id);
                 }
@@ -237,7 +237,7 @@ impl Handler<Join> for MatchmakingServer {
             // To avoid borrow checker issues, check session validity first, then get mutable reference
             let session_valid = {
                 let player = group.get(&msg.player_id);
-                player.map(|p| is_matchmaking_session_addr_valid(group, &msg.player_id, &msg.addr)).unwrap_or(true)
+                player.map(|_p| is_matchmaking_session_addr_valid(group, &msg.player_id, &msg.addr)).unwrap_or(true)
             };
             if !session_valid {
                 let player = group.get_mut(&msg.player_id).unwrap();
@@ -255,7 +255,7 @@ impl Handler<Join> for MatchmakingServer {
             // To avoid borrow checker issues, check session validity first, then get mutable reference
             let session_valid = {
                 let player = self.lobby_players.get(&msg.player_id);
-                player.map(|p| is_matchmaking_session_addr_valid(&self.lobby_players, &msg.player_id, &msg.addr)).unwrap_or(true)
+                player.map(|_p| is_matchmaking_session_addr_valid(&self.lobby_players, &msg.player_id, &msg.addr)).unwrap_or(true)
             };
             if !session_valid {
                 let player = self.lobby_players.get_mut(&msg.player_id).unwrap();

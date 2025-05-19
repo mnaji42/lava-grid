@@ -10,6 +10,7 @@ use uuid::Uuid;
 use log::{info, warn, error, debug};
 use actix::AsyncContext;
 use serde_json::json;
+use crate::server::ws_actor_utils::WsActorUtils;
 
 use crate::server::game_session::server::{GameSession, UnregisterSession, RegisterSession};
 use crate::server::game_session::messages::{
@@ -18,7 +19,7 @@ use crate::server::game_session::messages::{
     SessionKicked, SendWsTextMessage
 };
 use crate::server::matchmaking::types::WalletAddress;
-use crate::server::ws_error::{ws_error_message, http_error_response, ws_session_kicked_message};
+use crate::server::ws_error::{http_error_response, ws_session_kicked_message};
 use crate::server::anti_spam::AntiSpamState;
 
 /// Represents a WebSocket session for a player or spectator in a game.
@@ -52,6 +53,16 @@ impl Actor for GameSessionActor {
     }
 }
 
+impl WsActorUtils for GameSessionActor {
+    fn anti_spam(&mut self) -> &mut AntiSpamState {
+        &mut self.anti_spam
+    }
+    
+    fn player_id(&self) -> &str {
+        &self.player_id
+    }
+}
+
 impl GameSessionActor {
     /// Checks if the session is a player (not a spectator).
     /// If not, sends an error and returns false.
@@ -61,30 +72,12 @@ impl GameSessionActor {
                 "[WS] Command attempt by spectator: wallet={}",
                 self.player_id
             );
-            if self.anti_spam.should_send_error("SPECTATOR_COMMAND", &self.player_id) {
-                if self.anti_spam.record_response(&self.player_id) {
-                    let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-                    ctx.text(ws_error_message(
-                        "BANNED",
-                        "You have been banned for spamming. Please try again later.",
-                        Some(json!({
-                            "wallet": self.player_id,
-                            "ban_remaining_secs": ban_remaining_secs
-                        })),
-                    ));
-                    ctx.close(Some(ws::CloseReason {
-                        code: ws::CloseCode::Policy,
-                        description: Some("Banned for spam".into()),
-                    }));
-                    ctx.stop();
-                    return false;
-                }
-                ctx.text(ws_error_message(
-                    "SPECTATOR_COMMAND",
-                    "Spectators cannot send commands",
-                    Some(json!(self.player_id)),
-                ));
-            }
+            self.send_error_and_maybe_ban(
+                ctx,
+                "SPECTATOR_COMMAND",
+                "Spectators cannot send commands",
+                Some(json!(self.player_id)),
+            );
             return false;
         }
         true
@@ -93,53 +86,16 @@ impl GameSessionActor {
     /// Sends an explicit error to the client and logs the reason.
     fn send_explicit_error(&mut self, ctx: &mut ws::WebsocketContext<Self>, code: &str, message: &str) {
         warn!("[WS] Error for wallet={}: {}", self.player_id, message);
-        if self.anti_spam.should_send_error(code, &self.player_id) {
-            if self.anti_spam.record_response(&self.player_id) {
-                let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-                ctx.text(ws_error_message(
-                    "BANNED",
-                    "You have been banned for spamming. Please try again later.",
-                    Some(json!({
-                        "wallet": self.player_id,
-                        "ban_remaining_secs": ban_remaining_secs
-                    })),
-                ));
-                ctx.close(Some(ws::CloseReason {
-                    code: ws::CloseCode::Policy,
-                    description: Some("Banned for spam".into()),
-                }));
-                ctx.stop();
-                return;
-            }
-            ctx.text(ws_error_message(
-                code,
-                message,
-                Some(json!(self.player_id)),
-            ));
-        }
+        self.send_error_and_maybe_ban(ctx, code, message, Some(json!(self.player_id)));
     }
 }
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameSessionActor {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         // Anti-spam: record request, close if banned
-        if self.anti_spam.record_request(&self.player_id) {
-            warn!("[AntiSpam] Banned wallet={} - closing connection", self.player_id);
-            let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-            let context = json!({
-                "wallet": self.player_id,
-                "ban_remaining_secs": ban_remaining_secs
-            });
-            ctx.text(ws_error_message(
-                "BANNED",
-                "You have been banned for spamming. Please try again later.",
-                Some(context),
-            ));
-            ctx.close(Some(ws::CloseReason {
-                code: ws::CloseCode::Policy,
-                description: Some("Banned for spam".into()),
-            }));
-            ctx.stop();
+        let player_id = self.player_id().to_string();
+        if self.anti_spam().record_request(&player_id) {
+            self.send_ban_and_close(ctx);
             return;
         }
 
@@ -230,24 +186,7 @@ impl Handler<GamePreGameData> for GameSessionActor {
         let ws_msg = GameWsMessage::GamePreGameData(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => {
-                if self.anti_spam.record_response(&self.player_id) {
-                    let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-                    ctx.text(ws_error_message(
-                        "BANNED",
-                        "You have been banned for spamming. Please try again later.",
-                        Some(json!({
-                            "wallet": self.player_id,
-                            "ban_remaining_secs": ban_remaining_secs
-                        })),
-                    ));
-                    ctx.close(Some(ws::CloseReason {
-                        code: ws::CloseCode::Policy,
-                        description: Some("Banned for spam".into()),
-                    }));
-                    ctx.stop();
-                    return;
-                }
-                ctx.text(text)
+                self.send_json_or_ban(ctx, text);
             },
             Err(e) => self.send_explicit_error(
                 ctx,
@@ -265,24 +204,7 @@ impl Handler<GameModeChosen> for GameSessionActor {
         let ws_msg = GameWsMessage::GameModeChosen(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => {
-                if self.anti_spam.record_response(&self.player_id) {
-                    let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-                    ctx.text(ws_error_message(
-                        "BANNED",
-                        "You have been banned for spamming. Please try again later.",
-                        Some(json!({
-                            "wallet": self.player_id,
-                            "ban_remaining_secs": ban_remaining_secs
-                        })),
-                    ));
-                    ctx.close(Some(ws::CloseReason {
-                        code: ws::CloseCode::Policy,
-                        description: Some("Banned for spam".into()),
-                    }));
-                    ctx.stop();
-                    return;
-                }
-                ctx.text(text)
+                self.send_json_or_ban(ctx, text);
             },
             Err(e) => self.send_explicit_error(
                 ctx,
@@ -300,24 +222,7 @@ impl Handler<GameModeVoteUpdate> for GameSessionActor {
         let ws_msg = GameWsMessage::GameModeVoteUpdate(msg);
         match serde_json::to_string(&ws_msg) {
             Ok(text) => {
-                if self.anti_spam.record_response(&self.player_id) {
-                    let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-                    ctx.text(ws_error_message(
-                        "BANNED",
-                        "You have been banned for spamming. Please try again later.",
-                        Some(json!({
-                            "wallet": self.player_id,
-                            "ban_remaining_secs": ban_remaining_secs
-                        })),
-                    ));
-                    ctx.close(Some(ws::CloseReason {
-                        code: ws::CloseCode::Policy,
-                        description: Some("Banned for spam".into()),
-                    }));
-                    ctx.stop();
-                    return;
-                }
-                ctx.text(text)
+                self.send_json_or_ban(ctx, text);
             },
             Err(e) => self.send_explicit_error(
                 ctx,
@@ -344,26 +249,9 @@ impl Handler<GameStateUpdate> for GameSessionActor {
         match serde_json::to_string(&ws_msg) {
             Ok(text) => {
                 // Reset error suppression at each turn (new state)
-                self.anti_spam.reset_error_suppression();
+                self.anti_spam().reset_error_suppression();
                 
-                if self.anti_spam.record_response(&self.player_id) {
-                    let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-                    ctx.text(ws_error_message(
-                        "BANNED",
-                        "You have been banned for spamming. Please try again later.",
-                        Some(json!({
-                            "wallet": self.player_id,
-                            "ban_remaining_secs": ban_remaining_secs
-                        })),
-                    ));
-                    ctx.close(Some(ws::CloseReason {
-                        code: ws::CloseCode::Policy,
-                        description: Some("Banned for spam".into()),
-                    }));
-                    ctx.stop();
-                    return;
-                }
-                ctx.text(text)
+                self.send_json_or_ban(ctx, text);
             },
             Err(e) => {
                 error!(
@@ -394,25 +282,7 @@ impl Handler<SendWsTextMessage> for GameSessionActor {
     type Result = ();
 
     fn handle(&mut self, msg: SendWsTextMessage, ctx: &mut Self::Context) -> Self::Result {
-        if self.anti_spam.record_response(&self.player_id) {
-            let ban_remaining_secs = self.anti_spam.ban_remaining_secs(&self.player_id);
-            let context = json!({
-                "wallet": self.player_id,
-                "ban_remaining_secs": ban_remaining_secs
-            });
-            ctx.text(ws_error_message(
-                "BANNED",
-                "You have been banned for spamming. Please try again later.",
-                Some(context),
-            ));
-            ctx.close(Some(ws::CloseReason {
-                code: ws::CloseCode::Policy,
-                description: Some("Banned for spam".into()),
-            }));
-            ctx.stop();
-            return;
-        }
-        ctx.text(msg.text);
+        self.send_json_or_ban(ctx, msg.text);
     }
 }
 

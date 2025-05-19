@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::time::{Instant, Duration};
-use log::{warn, info};
+use log::warn;
 
 use crate::config::anti_spam::{MAX_RESPONSES_PER_SECOND, MAX_REQUESTS_PER_SECOND, BAN_DURATION_SECONDS};
 
@@ -92,7 +91,7 @@ impl AntiSpamState {
     }
 
     /// Returns the remaining ban duration in seconds, or 0 if not banned.
-    pub fn ban_remaining_secs(&self, wallet: &str) -> u64 {
+    pub fn ban_remaining_secs(&self, _wallet: &str) -> u64 {
         if let Some(until) = self.banned_until {
             let now = Instant::now();
             if until > now {

@@ -13,11 +13,6 @@ pub fn generate_grid(rows: usize, cols: usize) -> Vec<Vec<Cell>> {
     vec![vec![Cell::Solid; cols]; rows]
 }
 
-/// Determine if a cell can be broken (business rule: only solid tiles are breakable).
-fn is_cell_breakable(cell: Cell) -> bool {
-    cell == Cell::Solid
-}
-
 /// Apply the tile breaking logic for the current turn, depending on the game mode.
 ///
 /// - In Classic mode: randomly select a solid tile and break it.
